@@ -5,7 +5,7 @@
 #  - shell / REPL : voir Makefile-like commandes dans le README ci-dessous
 #      docker compose -f docker-compose.dev.yml exec sensai bash
 #      docker compose -f docker-compose.dev.yml exec sensai pytest -q
-#      curl localhost:8000/docs   (Swagger UI pour tester l'agent)
+#      make chat / make chat-stream   (voir Makefile)
 services:
   ollama:
     image: ollama/ollama:latest
@@ -41,16 +41,17 @@ services:
         condition: service_completed_successfully
     env_file: [.env]
     environment:
-      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_HOST: http://ollama:11434   # surcharge llm.host de config/agent.yaml
       SENSAI_ENV: dev
-      PYTHONPATH: /app
     ports:
       - "${SENSAI_PORT:-8000}:8000"
       - "5678:5678"   # debugpy
     volumes:
-      - .:/app                 # hot reload
+      - .:/app/sensai          # hot reload (data/, sessions/, logs/ restent dans le repo)
+      # run_python avec backend docker : décommenter (donne accès au Docker de l'hôte)
+      # - /var/run/docker.sock:/var/run/docker.sock
     # Pour attendre le debugger : remplacer par
-    # command: python -m debugpy --listen 0.0.0.0:5678 --wait-for-client -m uvicorn app:app --host 0.0.0.0 --reload
+    # command: python -m debugpy --listen 0.0.0.0:5678 --wait-for-client -m uvicorn server:app --host 0.0.0.0 --reload
     stdin_open: true
     tty: true
 

@@ -12,3 +12,6 @@ data/
 ui/
 docker-compose*.yml
 Dockerfile
+sessions/
+logs/
+workspace/

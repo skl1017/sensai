@@ -42,9 +42,18 @@ services:
         condition: service_completed_successfully
     env_file: [.env]
     environment:
-      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_HOST: http://ollama:11434   # surcharge llm.host de config/agent.yaml
     ports:
       - "${SENSAI_PORT:-8000}:8000"
+    volumes:                       # chemins relatifs de agent.yaml
+      - sensai-data:/app/sensai/data
+      - sensai-sessions:/app/sensai/sessions
+      - sensai-logs:/app/sensai/logs
+      - sensai-workspace:/app/sensai/workspace
 
 volumes:
   ollama:
+  sensai-data:
+  sensai-sessions:
+  sensai-logs:
+  sensai-workspace:
