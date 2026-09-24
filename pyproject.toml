@@ -1,0 +1,31 @@
+[project]
+name = "sensai"
+version = "0.1.0"
+description = "Sensai: a pure-Python AI agent, no framework."
+requires-python = ">=3.12"
+dependencies = [
+    "httpx",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "slow: integration tests requiring Ollama",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
