@@ -1,0 +1,23 @@
+name: Sensai push to mirror
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  MIRROR_URL: "git@github.com:EpitechPGE3-2026/G-AIA-500-PAR-5-1-sensai-6.git"
+
+jobs:
+  mirror:
+    if: github.repository == 'skl1017/sensai' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Push mirror to Epitech repo
+        uses: pixta-dev/repository-mirroring-action@v1
+        with:
+          target_repo_url: ${{ env.MIRROR_URL }}
+          ssh_private_key: ${{ secrets.GIT_SSH_PRIVATE_KEY }}
