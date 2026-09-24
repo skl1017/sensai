@@ -55,3 +55,25 @@ To run Ollama in Docker and pull the chat and embedding models set in `.env`:
 docker compose up -d        # ollama on :11434 + one-shot model pull
 docker compose logs -f ollama-pull
 ```
+
+## Chat from the terminal
+
+Once Ollama is up (`docker compose up -d` above), start the minimal CLI chatbot:
+
+```bash
+.venv/bin/python -m ui.cli               # uses config/agent.yaml
+.venv/bin/python -m ui.cli --config path/to/other.yaml
+```
+
+Type a message and press Enter; the answer streams token by token. Commands:
+
+- `/help` — list available commands.
+- `/quit` (or `/exit`) — leave the chat. Ctrl-C/Ctrl-D also exit.
+
+Example:
+
+```
+> what is 12*(3+4)**2?
+[calculator(expression='12*(3+4)**2')]
+12 * (3 + 4) ** 2 = 588
+```

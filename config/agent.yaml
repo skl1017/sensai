@@ -1,0 +1,16 @@
+# Default agent configuration, assembled by `app.py::build_agent` (wiki §9.1).
+# `pipeline` order is execution order (see CLAUDE.md "Pipeline"); adding a
+# feature is one line here plus one registry entry in `app.py`.
+
+llm:
+  provider: ollama
+  model: qwen2.5:3b            # must match OLLAMA_MODEL in .env (pulled by docker compose)
+  embed_model: nomic-embed-text
+  host: http://localhost:11434
+  max_context_tokens: 8192
+
+pipeline:                      # list order = execution order (wiki §9)
+  - react: { max_iterations: 8, tool_timeout: 30, max_observation_chars: 4000 }
+
+tools:
+  - calculator

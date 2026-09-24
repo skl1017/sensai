@@ -22,6 +22,9 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["core*", "llm*", "tools*", "nodes*", "storage*", "ui*"]
 
+[tool.setuptools]
+py-modules = ["app"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
