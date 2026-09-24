@@ -131,9 +131,9 @@ async def test_chat_json_returns_dict_with_required_keys(llm):
 
 
 async def test_embed_returns_vectors(embed_model_available):
-    from llm.ollama import Ollama
+    from llm.ollama import OllamaEmbedder
 
-    async with Ollama(model=TEST_MODEL, embed_model=TEST_EMBED_MODEL, host=OLLAMA_HOST) as client:
+    async with OllamaEmbedder(model=TEST_EMBED_MODEL, host=OLLAMA_HOST) as client:
         vectors = await client.embed(["hello world", "goodbye world"])
 
     assert len(vectors) == 2

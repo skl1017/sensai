@@ -1,4 +1,7 @@
-"""Ollama adapter: `Ollama` implements both `ILLM` and `IEmbedder`.
+"""Ollama adapters: `Ollama` implements `ILLM`, `OllamaEmbedder` implements `IEmbedder`.
+
+`Ollama` receives an `IEmbedder` (injected, not inherited) so embedding-based
+features can be reached from the LLM without coupling it to one backend.
 
 Design
 ------
@@ -60,20 +63,79 @@ from core.types import LLMChunk, Message, ToolCall
 _EXCERPT_CHARS = 200
 
 
-class Ollama(ILLM, IEmbedder):
-    """`ILLM` + `IEmbedder` adapter for a local Ollama server."""
+def _unreachable(host: str) -> LLMUnavailable:
+    return LLMUnavailable(f"Ollama unreachable at {host}: is `ollama serve` running?")
+
+
+async def _check(response: httpx.Response, *, model: str, has_tools: bool) -> None:
+    body = await response.aread()
+    try:
+        data = json.loads(body)
+        server_msg = str(data.get("error", data))
+    except json.JSONDecodeError:
+        server_msg = body.decode("utf-8", errors="replace")
+    server_msg = server_msg[:_EXCERPT_CHARS]
+
+    if response.status_code == 404:
+        raise LLMModelNotFound(f"model '{model}' not found: run `ollama pull {model}`")
+    if response.status_code == 400 and has_tools:
+        raise LLMToolsUnsupported(
+            f"model '{model}' rejected tools ({server_msg}): "
+            "choose a model that supports tools (e.g. llama3.1, qwen2.5)"
+        )
+    raise LLMError(f"Ollama HTTP {response.status_code}: {server_msg}")
+
+
+class OllamaEmbedder(IEmbedder):
+    """`IEmbedder` adapter for a local Ollama server."""
+
+    def __init__(
+        self,
+        model: str = "nomic-embed-text",
+        host: str = "http://localhost:11434",
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self.model = model
+        self.host = host
+        self._client = (
+            client if client is not None else httpx.AsyncClient(base_url=host, timeout=None)
+        )
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+    async def __aenter__(self) -> OllamaEmbedder:
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        await self.aclose()
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        try:
+            r = await self._client.post("/api/embed", json={"model": self.model, "input": texts})
+            if r.status_code >= 400:
+                await _check(r, model=self.model, has_tools=False)
+        except httpx.TransportError as exc:
+            raise _unreachable(self.host) from exc
+        return r.json()["embeddings"]
+
+
+class Ollama(ILLM):
+    """`ILLM` adapter for a local Ollama server."""
 
     def __init__(
         self,
         model: str = "llama3.1",
-        embed_model: str = "nomic-embed-text",
+        embedder: IEmbedder | None = None,
         host: str = "http://localhost:11434",
         max_context_tokens: int = 8192,
         options: dict | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self.model = model
-        self.embed_model = embed_model
+        self.embedder = embedder
         self.host = host
         self.max_context_tokens = max_context_tokens
         self._options = {"num_ctx": max_context_tokens, **(options or {})}
@@ -110,7 +172,7 @@ class Ollama(ILLM, IEmbedder):
         try:
             async with self._client.stream("POST", "/api/chat", json=payload) as r:
                 if r.status_code >= 400:
-                    await self._check(r, model=self.model, has_tools=bool(tools))
+                    await _check(r, model=self.model, has_tools=bool(tools))
                 async for line in r.aiter_lines():
                     if not line:
                         continue
@@ -139,27 +201,10 @@ class Ollama(ILLM, IEmbedder):
                         completion_tokens=data.get("eval_count"),
                     )
         except httpx.TransportError as exc:
-            raise LLMUnavailable(
-                f"Ollama unreachable at {self.host}: is `ollama serve` running?"
-            ) from exc
+            raise _unreachable(self.host) from exc
 
     def count_tokens(self, messages: list[Message]) -> int:
         return sum(len(m.content) for m in messages) // 4 + 4 * len(messages)
-
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        if not texts:
-            return []
-        try:
-            r = await self._client.post(
-                "/api/embed", json={"model": self.embed_model, "input": texts}
-            )
-            if r.status_code >= 400:
-                await self._check(r, model=self.embed_model, has_tools=False)
-        except httpx.TransportError as exc:
-            raise LLMUnavailable(
-                f"Ollama unreachable at {self.host}: is `ollama serve` running?"
-            ) from exc
-        return r.json()["embeddings"]
 
     @staticmethod
     def _parse_arguments(arguments: object) -> dict:
@@ -173,24 +218,6 @@ class Ollama(ILLM, IEmbedder):
                     f"Ollama tool call arguments are not valid JSON: {arguments!r}"
                 ) from exc
         return arguments
-
-    async def _check(self, response: httpx.Response, *, model: str, has_tools: bool) -> None:
-        body = await response.aread()
-        try:
-            data = json.loads(body)
-            server_msg = str(data.get("error", data))
-        except json.JSONDecodeError:
-            server_msg = body.decode("utf-8", errors="replace")
-        server_msg = server_msg[:_EXCERPT_CHARS]
-
-        if response.status_code == 404:
-            raise LLMModelNotFound(f"model '{model}' not found: run `ollama pull {model}`")
-        if response.status_code == 400 and has_tools:
-            raise LLMToolsUnsupported(
-                f"model '{self.model}' rejected tools ({server_msg}): "
-                "choose a model that supports tools (e.g. llama3.1, qwen2.5)"
-            )
-        raise LLMError(f"Ollama HTTP {response.status_code}: {server_msg}")
 
     @staticmethod
     def _to_wire(m: Message) -> dict:

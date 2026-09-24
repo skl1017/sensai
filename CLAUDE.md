@@ -16,7 +16,7 @@ Sensai: a pure-Python AI agent, no framework. A minimal core (`Agent`, `ILLM`, `
 
 ```
 core/        types.py, llm.py (ILLM, IEmbedder), tool.py (ITool), node.py (PipelineNode), runtime.py (ContextVars), agent.py
-llm/         ollama.py (ILLM + IEmbedder adapter, httpx)
+llm/         ollama.py (ILLM + IEmbedder adapters, httpx; `Ollama` receives an `IEmbedder`)
 tools/       ITool implementations (calculator, file_tool, web_search, code_sandbox, mcp_adapter, ask_user_tool, approved_tool, memory_tool, agent_tool)
 nodes/       PipelineNode implementations (logging, persist, input_guardrail, cache, context_builder, react_loop, output_guardrail, eval, artifact)
 storage/     conversation (tree), memory_db (SQLite), vector_store, ingest, prompt_registry

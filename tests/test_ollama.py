@@ -15,7 +15,7 @@ import pytest
 
 from core.llm import LLMError, LLMModelNotFound, LLMToolsUnsupported, LLMUnavailable
 from core.types import Message, ToolCall
-from llm.ollama import Ollama
+from llm.ollama import Ollama, OllamaEmbedder
 
 HOST = "http://ollama.test"
 
@@ -46,6 +46,11 @@ def make_llm(handler, **kwargs) -> Ollama:
     return Ollama(client=client, host=HOST, **kwargs)
 
 
+def make_embedder(handler, **kwargs) -> OllamaEmbedder:
+    client = httpx.AsyncClient(base_url=HOST, transport=httpx.MockTransport(handler))
+    return OllamaEmbedder(client=client, host=HOST, **kwargs)
+
+
 async def collect(chat_iter):
     return [chunk async for chunk in chat_iter]
 
@@ -62,7 +67,7 @@ def never_called(request: httpx.Request) -> httpx.Response:
 async def test_default_attributes():
     llm = make_llm(lambda r: httpx.Response(200, content=ndjson(done_line())))
     assert llm.model == "llama3.1"
-    assert llm.embed_model == "nomic-embed-text"
+    assert llm.embedder is None
     assert llm.host == HOST
     assert llm.max_context_tokens == 8192
     assert llm._options == {"num_ctx": 8192}
@@ -393,8 +398,8 @@ def test_count_tokens_deterministic_and_makes_no_network_call():
 
 
 async def test_embed_empty_input_returns_empty_list_without_network():
-    llm = make_llm(never_called)
-    assert await llm.embed([]) == []
+    embedder = make_embedder(never_called)
+    assert await embedder.embed([]) == []
 
 
 async def test_embed_posts_expected_body_and_returns_vectors():
@@ -405,8 +410,8 @@ async def test_embed_posts_expected_body_and_returns_vectors():
         captured["path"] = request.url.path
         return httpx.Response(200, json={"embeddings": [[0.1, 0.2], [0.3, 0.4]]})
 
-    llm = make_llm(handler)
-    result = await llm.embed(["a", "b"])
+    embedder = make_embedder(handler)
+    result = await embedder.embed(["a", "b"])
 
     assert captured["path"] == "/api/embed"
     assert captured["payload"] == {"model": "nomic-embed-text", "input": ["a", "b"]}
@@ -434,9 +439,9 @@ async def test_embed_connect_error_raises_llm_unavailable():
     def handler(request):
         raise httpx.ConnectError("refused", request=request)
 
-    llm = make_llm(handler)
+    embedder = make_embedder(handler)
     with pytest.raises(LLMUnavailable) as exc_info:
-        await llm.embed(["x"])
+        await embedder.embed(["x"])
 
     msg = str(exc_info.value).lower()
     assert "ollama serve" in msg or HOST.lower() in msg
@@ -457,9 +462,9 @@ async def test_embed_404_raises_llm_model_not_found_with_pull_hint():
     def handler(request):
         return httpx.Response(404, json={"error": "model 'nomic-embed-text' not found"})
 
-    llm = make_llm(handler)
+    embedder = make_embedder(handler)
     with pytest.raises(LLMModelNotFound) as exc_info:
-        await llm.embed(["x"])
+        await embedder.embed(["x"])
 
     assert "ollama pull nomic-embed-text" in str(exc_info.value)
 
