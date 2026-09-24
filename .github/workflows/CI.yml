@@ -20,7 +20,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install httpx pyyaml pytest pytest-asyncio
+        run: pip install ".[dev]"
 
       - name: Run tests
         run: pytest -q -m "not slow"

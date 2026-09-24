@@ -10,12 +10,11 @@ pipeline node or a tool. The full architecture is documented in the project wiki
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
-.venv/bin/pip install httpx pyyaml pytest pytest-asyncio ruff
+.venv/bin/pip install -e ".[dev]"
 ```
 
-(Equivalently, the dependency lists in `pyproject.toml` mirror these packages; there is no
-`[build-system]` section, so the project is not installed as a package — just install the
-listed dependencies directly into the virtualenv as shown above.)
+Runtime and dev dependencies are declared in `pyproject.toml` (the `dev` extra adds
+`pytest`, `pytest-asyncio` and `ruff`).
 
 ## Running tests
 
