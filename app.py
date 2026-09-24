@@ -19,7 +19,7 @@ no change to `build_agent` itself.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from config_loader import load_config, normalize  # noqa: F401
@@ -30,6 +30,7 @@ from core.tool import ITool
 from core.ui import UserInterface
 from llm.ollama import Ollama, OllamaEmbedder
 from nodes.react_loop import ReActLoopNode
+from storage.stores import Stores
 from tools.calculator import CalculatorTool
 
 
@@ -37,12 +38,24 @@ from tools.calculator import CalculatorTool
 class Deps:
     """Shared dependencies injected into node/tool factories.
 
-    `stores` (conversation tree, memory DB, vector store) is not here yet:
-    it arrives with the storage layer's own story.
+    `stores` (conversation tree, memory DB, vector store, journal) is optional
+    until the storage layer is wired in.
     """
 
     llm: ILLM
     ui: UserInterface
+    stores: Stores | None = None
+
+
+def flatten(items: Iterable[ITool | list[ITool]]) -> list[ITool]:
+    """Flatten factory results (a tool or a list of tools) into one list of tools."""
+    flat: list[ITool] = []
+    for item in items:
+        if isinstance(item, list):
+            flat.extend(item)
+        else:
+            flat.append(item)
+    return flat
 
 
 NODES: dict[str, Callable[[dict, Deps], PipelineNode]] = {
@@ -79,16 +92,13 @@ async def build_agent(cfg_path: str, ui: UserInterface, llm: ILLM | None = None)
     resolved_llm = llm if llm is not None else build_llm(cfg.llm.as_dict())
     deps = Deps(llm=resolved_llm, ui=ui)
 
-    tools: list[ITool] = []
+    built: list[ITool | list[ITool]] = []
     for name, params in cfg.tools:
         factory = TOOLS.get(name)
         if factory is None:
             raise ValueError(f"Unknown tool {name!r}. Available: {', '.join(sorted(TOOLS))}")
-        result = factory(params, deps)
-        if isinstance(result, list):
-            tools.extend(result)
-        else:
-            tools.append(result)
+        built.append(factory(params, deps))
+    tools = flatten(built)
 
     pipeline: list[PipelineNode] = []
     for name, params in cfg.pipeline:

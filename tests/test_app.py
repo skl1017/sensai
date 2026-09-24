@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from app import Deps, build_agent, build_llm, normalize
+from app import NODES, TOOLS, Deps, build_agent, build_llm, flatten, normalize
+from core.node import PipelineNode
 from llm.ollama import Ollama, OllamaEmbedder
 from nodes.react_loop import ReActLoopNode
 from tests.fakes import FakeLLM, FakeTool
@@ -171,3 +172,66 @@ async def test_build_agent_flattens_tool_lists(tmp_path):
         assert "b" in agent.tools
     finally:
         del TOOLS["multi"]
+
+
+# --- Deps / flatten / registries ---------------------------------------------
+
+
+def test_deps_stores_defaults_to_none():
+    assert Deps(llm=FakeLLM([]), ui=_NoopUI()).stores is None
+
+
+def test_flatten_single_tool():
+    a = FakeTool(name="a")
+    assert flatten([a]) == [a]
+
+
+def test_flatten_list_of_tools():
+    a, b = FakeTool(name="a"), FakeTool(name="b")
+    assert flatten([[a, b]]) == [a, b]
+
+
+def test_flatten_mixed_preserves_order():
+    a, b, c = FakeTool(name="a"), FakeTool(name="b"), FakeTool(name="c")
+    assert flatten([a, [b, c]]) == [a, b, c]
+
+
+def test_flatten_empty():
+    assert flatten([]) == []
+
+
+async def test_unknown_node_error_lists_available_names(tmp_path):
+    cfg_path = _write_config(tmp_path, pipeline="nope")
+    with pytest.raises(ValueError) as exc:
+        await build_agent(str(cfg_path), _NoopUI(), llm=FakeLLM([]))
+    assert all(name in str(exc.value) for name in NODES)
+
+
+async def test_unknown_tool_error_lists_available_names(tmp_path):
+    cfg_path = _write_config(tmp_path, tools="nope")
+    with pytest.raises(ValueError) as exc:
+        await build_agent(str(cfg_path), _NoopUI(), llm=FakeLLM([]))
+    assert all(name in str(exc.value) for name in TOOLS)
+
+
+class _DummyNode(PipelineNode):
+    @classmethod
+    def from_config(cls, params, deps):
+        return cls()
+
+    async def handle(self, ctx, next):
+        return await next(ctx)
+
+
+async def test_new_node_is_one_registry_entry_and_one_config_line(monkeypatch, tmp_path):
+    monkeypatch.setitem(NODES, "dummy", _DummyNode.from_config)
+    cfg_path = tmp_path / "agent.yaml"
+    cfg_path.write_text(
+        "llm:\n  provider: ollama\n  model: fake\n"
+        "pipeline:\n  - dummy\n  - react\n"
+        "tools:\n  - calculator\n",
+        encoding="utf-8",
+    )
+    agent = await build_agent(str(cfg_path), _NoopUI(), llm=FakeLLM([]))
+    assert isinstance(agent.pipeline[0], _DummyNode)
+    assert isinstance(agent.pipeline[1], ReActLoopNode)
