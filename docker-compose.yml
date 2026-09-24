@@ -43,12 +43,8 @@ services:
     env_file: [.env]
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
-      SENSAI_DATA_DIR: /data
     ports:
       - "${SENSAI_PORT:-8000}:8000"
-    volumes:
-      - sensai-data:/data
 
 volumes:
   ollama:
-  sensai-data:

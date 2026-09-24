@@ -7,8 +7,7 @@ FROM python:${PYTHON_VERSION}-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    SENSAI_DATA_DIR=/data
+    PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
@@ -28,13 +27,11 @@ CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "-
 # ---------- prod : image minimale, utilisateur non-root ----------
 FROM base AS prod
 
-RUN useradd --create-home --uid 1000 sensai \
-    && mkdir -p /data && chown sensai:sensai /data
+RUN useradd --create-home --uid 1000 sensai
 
 COPY --chown=sensai:sensai . .
 
 USER sensai
-VOLUME ["/data"]
 EXPOSE 8000
 
 HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 \
