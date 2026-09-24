@@ -8,3 +8,4 @@ data/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
+!.env.example

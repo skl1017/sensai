@@ -48,3 +48,10 @@ Runtime and dev dependencies are declared in `pyproject.toml` (the `dev` extra a
 Sensai talks to a local LLM via Ollama at `http://localhost:11434` (`/api/chat`, `/api/embed`).
 Copy `.env.example` to `.env` and fill in any local configuration needed; `.env*` files are
 gitignored and must never be committed.
+
+To run Ollama in Docker and pull the chat and embedding models set in `.env`:
+
+```bash
+docker compose up -d        # ollama on :11434 + one-shot model pull
+docker compose logs -f ollama-pull
+```
