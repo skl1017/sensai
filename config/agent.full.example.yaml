@@ -1,0 +1,46 @@
+# Full example from wiki §9: only validated, never assembled.
+llm:
+  provider: ollama
+  model: llama3.1
+  embed_model: nomic-embed-text
+  host: http://localhost:11434
+  max_context_tokens: 8192
+
+persona: default                 # config/personas/default.yaml
+prompt_version: v3
+
+pipeline:                        # l'ordre de la liste = l'ordre d'exécution
+  - logging:          { sink: logs/events.jsonl, redact_inputs: false }
+  - persist:          { dir: sessions/, persist_blocked: false }
+  - input_guardrail:  { max_chars: 4000, rules: config/guardrails.yaml, scope_check: false }
+  - cache:            { threshold: 0.92, ttl_hours: 24, mode: first_turn_only }
+  - context:
+      sections: [persona, profile, memory, artifact, rag, fewshot]
+      budget: { reserve_output: 1024, trigger_ratio: 0.8, keep_last_turns: 4 }
+      rag: { top_k: 4, candidates: 20, rerank: true, min_score: 0.35 }
+  - react:            { max_iterations: 8, tool_timeout: 30, max_observation_chars: 4000 }
+  - output_guardrail: { strict: false, pii: [email, phone, iban, card] }
+  - eval:             { mode: background, sample_rate: 0.2, judge_model: llama3.1, annotate: false }
+  - artifact:         { every_n_turns: 1 }
+
+tools:
+  - calculator
+  - file:       { policy: config/permissions.yaml }
+  - web_search: { provider: searxng, url: http://localhost:8080 }
+  - run_python: { backend: docker, image: python:3.12-slim }
+  - ask_user
+  - memory:     { db: data/memory.db }
+
+approval:                        # tools enveloppés par ApprovedTool (A3), motifs fnmatch
+  - write_file
+  - run_python
+  - memory_forget
+
+mcp_servers:
+  - name: fs                     # serveur préexistant
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "./workspace"]
+    read_only: []                # noms des outils sans effet de bord
+  - name: sensai                 # ton propre serveur
+    command: python
+    args: ["-m", "sensai.mcp_server.server"]

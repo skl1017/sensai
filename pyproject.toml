@@ -23,7 +23,7 @@ dev = [
 include = ["core*", "llm*", "tools*", "nodes*", "storage*", "ui*"]
 
 [tool.setuptools]
-py-modules = ["app"]
+py-modules = ["app", "config_loader"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

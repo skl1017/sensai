@@ -21,11 +21,8 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
 
-import yaml
-
+from config_loader import load_config, normalize  # noqa: F401
 from core.agent import Agent
 from core.llm import ILLM
 from core.node import PipelineNode
@@ -57,30 +54,6 @@ TOOLS: dict[str, Callable[[dict, Deps], ITool | list[ITool]]] = {
 }
 
 
-def normalize(entry: Any) -> tuple[str, dict]:
-    """Turn one `pipeline`/`tools` YAML entry into `(name, params)`.
-
-    An entry is either a bare string (`"calculator"` -> `("calculator", {})`)
-    or a single-key mapping (`{"react": {...}}` -> `("react", {...})`, with
-    `None` params normalized to `{}`).
-    """
-    if isinstance(entry, str):
-        return entry, {}
-    if isinstance(entry, dict):
-        if len(entry) != 1:
-            raise ValueError(
-                f"Malformed config entry {entry!r}: expected exactly one key, got {len(entry)}"
-            )
-        ((name, params),) = entry.items()
-        return name, params or {}
-    raise ValueError(f"Malformed config entry {entry!r}: expected a string or a single-key dict")
-
-
-def load_config(path: str) -> dict:
-    """Load and parse the YAML config file at `path`."""
-    return yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-
-
 def build_llm(llm_cfg: dict) -> Ollama:
     """Build the `Ollama` adapter (and its embedder) from the `llm:` config section."""
     cfg = dict(llm_cfg)
@@ -103,11 +76,11 @@ async def build_agent(cfg_path: str, ui: UserInterface, llm: ILLM | None = None)
     `FakeLLM` this way and never touch the network/`Ollama`).
     """
     cfg = await asyncio.to_thread(load_config, cfg_path)
-    resolved_llm = llm if llm is not None else build_llm(cfg["llm"])
+    resolved_llm = llm if llm is not None else build_llm(cfg.llm.as_dict())
     deps = Deps(llm=resolved_llm, ui=ui)
 
     tools: list[ITool] = []
-    for name, params in map(normalize, cfg.get("tools", [])):
+    for name, params in cfg.tools:
         factory = TOOLS.get(name)
         if factory is None:
             raise ValueError(f"Unknown tool {name!r}. Available: {', '.join(sorted(TOOLS))}")
@@ -118,7 +91,7 @@ async def build_agent(cfg_path: str, ui: UserInterface, llm: ILLM | None = None)
             tools.append(result)
 
     pipeline: list[PipelineNode] = []
-    for name, params in map(normalize, cfg.get("pipeline", [])):
+    for name, params in cfg.pipeline:
         factory = NODES.get(name)
         if factory is None:
             raise ValueError(f"Unknown node {name!r}. Available: {', '.join(sorted(NODES))}")
