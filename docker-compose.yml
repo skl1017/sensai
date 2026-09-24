@@ -1,0 +1,54 @@
+# Production : docker compose up -d --build
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # GPU NVIDIA : décommenter
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - ollama pull "$${OLLAMA_MODEL}" && ollama pull "$${OLLAMA_EMBED_MODEL}"
+    env_file: [.env]
+    restart: "no"
+
+  sensai:
+    build:
+      context: .
+      target: prod
+    restart: unless-stopped
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+    env_file: [.env]
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      SENSAI_DATA_DIR: /data
+    ports:
+      - "${SENSAI_PORT:-8000}:8000"
+    volumes:
+      - sensai-data:/data
+
+volumes:
+  ollama:
+  sensai-data:

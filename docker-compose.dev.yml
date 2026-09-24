@@ -1,0 +1,61 @@
+# Dev : docker compose -f docker-compose.dev.yml up --build
+#  - hot reload (code monté, uvicorn --reload)
+#  - debugpy sur :5678 (attach depuis VS Code)
+#  - Ollama exposé sur :11434
+#  - shell / REPL : voir Makefile-like commandes dans le README ci-dessous
+#      docker compose -f docker-compose.dev.yml exec sensai bash
+#      docker compose -f docker-compose.dev.yml exec sensai pytest -q
+#      curl localhost:8000/docs   (Swagger UI pour tester l'agent)
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - ollama pull "$${OLLAMA_MODEL}" && ollama pull "$${OLLAMA_EMBED_MODEL}"
+    env_file: [.env]
+    restart: "no"
+
+  sensai:
+    build:
+      context: .
+      target: dev
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+    env_file: [.env]
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      SENSAI_DATA_DIR: /data
+      SENSAI_ENV: dev
+      PYTHONPATH: /app
+    ports:
+      - "${SENSAI_PORT:-8000}:8000"
+      - "5678:5678"   # debugpy
+    volumes:
+      - .:/app                 # hot reload
+      - sensai-data-dev:/data
+    # Pour attendre le debugger : remplacer par
+    # command: python -m debugpy --listen 0.0.0.0:5678 --wait-for-client -m uvicorn app:app --host 0.0.0.0 --reload
+    stdin_open: true
+    tty: true
+
+volumes:
+  ollama:
+  sensai-data-dev:
