@@ -1,6 +1,7 @@
 services:
   ollama:
     image: ollama/ollama:latest
+    dns: [1.1.1.1, 8.8.8.8]
     ports:
       - "11434:11434"
     volumes:
@@ -23,6 +24,7 @@ services:
   # One-shot: pulls the chat and embedding models into the shared volume, then exits.
   ollama-pull:
     image: ollama/ollama:latest
+    dns: [1.1.1.1, 8.8.8.8]
     depends_on:
       ollama:
         condition: service_healthy
