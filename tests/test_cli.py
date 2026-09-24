@@ -198,3 +198,29 @@ def test_tool_call_event_with_non_dict_args_does_not_crash():
     ui = CliUI(out)
     ui.on_event("tool_call", {"step": 1, "name": "calculator", "args": "6*7"})
     assert "[calculator('6*7')]" in out.getvalue()
+
+
+async def test_cli_uses_one_session_in_stores(tmp_path):
+    from storage.stores import InMemoryStores
+
+    out = io.StringIO()
+    ui = CliUI(out)
+    stores = InMemoryStores()
+    agent = make_agent(_ShortCircuitNode())
+    await run_cli(agent, ui, scripted_read_line(["a", "b", "/quit"]), stores, "sess")
+    head = stores.conversation.head("sess")
+    contents = [m.content for m in stores.conversation.branch("sess", head)]
+    assert contents == ["a", "short-circuited answer", "b", "short-circuited answer"]
+
+
+async def test_cli_ask_yes_no_and_eof(monkeypatch):
+    answers = iter(["yes", "Y", "nope"])
+    monkeypatch.setattr("builtins.input", lambda: next(answers))
+    ui = CliUI(io.StringIO())
+    assert [await ui.ask("ok?") for _ in range(3)] == ["yes", "yes", "no"]
+
+    def eof():
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", eof)
+    assert await ui.ask("ok?") == "no"

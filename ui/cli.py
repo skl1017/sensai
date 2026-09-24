@@ -21,13 +21,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+import uuid
 from collections.abc import Awaitable, Callable
 from typing import TextIO
 
-from app import build_agent
+from app import build_agent, chat_turn
 from core.agent import Agent
 from core.llm import LLMError
-from core.types import Message
+from storage.stores import InMemoryStores, Stores
 
 HELP_TEXT = """\
 Available commands:
@@ -54,6 +55,16 @@ class CliUI:
         self.out.write(text)
         self.out.flush()
 
+    async def ask(self, question: str, kind: str = "confirm") -> str:
+        """Yes/no prompt on stdin; EOF or anything but yes/y is a refusal."""
+        self.out.write(f"\n{question} [yes/no] ")
+        self.out.flush()
+        try:
+            answer = await asyncio.to_thread(input)
+        except EOFError:
+            return "no"
+        return "yes" if answer.strip().lower() in ("yes", "y") else "no"
+
     def on_event(self, kind: str, data: dict) -> None:
         if kind == "tool_call":
             raw = data["args"]
@@ -71,10 +82,21 @@ async def _default_read_line(prompt: str) -> str:
     return await asyncio.to_thread(input, prompt)
 
 
-async def run_cli(agent: Agent, ui: CliUI, read_line: ReadLine | None = None) -> None:
-    """Run the input loop until `/quit`, EOF, or Ctrl-C."""
+async def run_cli(
+    agent: Agent,
+    ui: CliUI,
+    read_line: ReadLine | None = None,
+    stores: Stores | None = None,
+    session_id: str | None = None,
+) -> None:
+    """Run the input loop until `/quit`, EOF, or Ctrl-C.
+
+    Each turn goes through `app.chat_turn`, so history lives in `stores` under
+    one session id generated once per run (defaults: fresh in-memory stores).
+    """
     read_line = read_line or _default_read_line
-    history: list[Message] = []
+    stores = stores if stores is not None else InMemoryStores()
+    session_id = session_id or uuid.uuid4().hex
 
     while True:
         try:
@@ -99,7 +121,7 @@ async def run_cli(agent: Agent, ui: CliUI, read_line: ReadLine | None = None) ->
 
         ui.reset()
         try:
-            ctx = await agent.run(text, history)
+            ctx = await chat_turn(agent, stores, session_id, text)
         except LLMError as exc:
             ui.out.write(f"Error: {exc}\n")
             continue
@@ -107,9 +129,6 @@ async def run_cli(agent: Agent, ui: CliUI, read_line: ReadLine | None = None) ->
         if not ui.streamed:
             ui.out.write(ctx.response or "")
         ui.out.write("\n")
-
-        history.append(Message("user", text))
-        history.append(Message("assistant", ctx.response or ""))
 
 
 async def amain(argv: list[str] | None = None) -> None:
@@ -120,11 +139,12 @@ async def amain(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     ui = CliUI()
-    agent = await build_agent(args.config, ui)
+    stores = InMemoryStores()
+    agent = await build_agent(args.config, ui, stores=stores)
 
     print(f"Sensai ({agent.llm.model}) -- type /help for commands.")
     try:
-        await run_cli(agent, ui)
+        await run_cli(agent, ui, stores=stores)
     finally:
         aclose = getattr(agent.llm, "aclose", None)
         if aclose is not None:

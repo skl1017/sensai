@@ -13,9 +13,9 @@ found on `deps.ui` (see `nodes/react_loop.py`); a node itself only needs the
 two plain callables, not the full `UserInterface`, so it stays decoupled from
 concrete UIs.
 
-An `ask` method (human-in-the-loop approval / clarification prompts) will be
-added to this protocol alongside `ApprovedTool`/`AskUserTool` (A3/X4); it is
-not part of #14/#15/#16 and is intentionally left out for now.
+`ask` is the human-in-the-loop entry point used by `ApprovedTool` (`kind="confirm"`,
+answer `"yes"` or `"no"`) and, later, `AskUserTool` (other kinds). A UI with no
+user behind it must answer `"no"`: deny by default.
 
 Event kinds
 -----------
@@ -44,4 +44,8 @@ class UserInterface(Protocol):
 
     def on_event(self, kind: str, data: dict) -> None | Awaitable[None]:
         """Called with a structured event (see module docstring for kinds)."""
+        ...
+
+    async def ask(self, question: str, kind: str = "confirm") -> str:
+        """Ask the user; for `kind="confirm"` return `"yes"` or `"no"` (anything else = refusal)."""
         ...

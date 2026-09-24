@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import NODES, TOOLS, Deps, build_agent, build_llm, flatten, normalize
+from app import NODES, TOOLS, Deps, build_agent, build_llm, chat_turn, flatten, normalize
 from core.node import PipelineNode
 from llm.ollama import Ollama, OllamaEmbedder
 from nodes.react_loop import ReActLoopNode
@@ -17,6 +17,9 @@ class _NoopUI:
 
     def on_event(self, kind: str, data: dict) -> None:
         pass
+
+    async def ask(self, question: str, kind: str = "confirm") -> str:
+        return "no"
 
 
 # --- normalize -------------------------------------------------------------
@@ -235,3 +238,107 @@ async def test_new_node_is_one_registry_entry_and_one_config_line(monkeypatch, t
     agent = await build_agent(str(cfg_path), _NoopUI(), llm=FakeLLM([]))
     assert isinstance(agent.pipeline[0], _DummyNode)
     assert isinstance(agent.pipeline[1], ReActLoopNode)
+
+
+# --- approval wiring, pipeline from config, chat_turn ------------------------
+
+
+def _cfg(tmp_path, pipeline=("react",), approval=()):
+    lines = ["llm:", "  provider: ollama", "  model: fake", "pipeline:"]
+    lines += [f"  - {p}" for p in pipeline]
+    lines += ["tools:", "  - fakes"]
+    if approval:
+        lines += ["approval:"] + [f'  - "{a}"' for a in approval]
+    path = tmp_path / "agent.yaml"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return str(path)
+
+
+async def test_removing_react_line_shortens_pipeline(monkeypatch, tmp_path):
+    monkeypatch.setitem(TOOLS, "fakes", lambda p, d: FakeTool())
+    full = await build_agent(_cfg(tmp_path), _NoopUI(), llm=FakeLLM([]))
+    empty = await build_agent(_cfg(tmp_path, pipeline=()), _NoopUI(), llm=FakeLLM([]))
+    assert len(full.pipeline) - len(empty.pipeline) == 1
+
+
+async def test_tools_matching_approval_are_wrapped(monkeypatch, tmp_path):
+    from tools.approved_tool import ApprovedTool
+
+    monkeypatch.setitem(
+        TOOLS, "fakes", lambda p, d: [FakeTool(name="write_file"), FakeTool(name="read_file")]
+    )
+    agent = await build_agent(_cfg(tmp_path, approval=["write_*"]), _NoopUI(), llm=FakeLLM([]))
+    assert isinstance(agent.tools["write_file"], ApprovedTool)
+    assert not isinstance(agent.tools["read_file"], ApprovedTool)
+
+
+async def test_no_approval_section_wraps_nothing(monkeypatch, tmp_path):
+    from tools.approved_tool import ApprovedTool
+
+    monkeypatch.setitem(TOOLS, "fakes", lambda p, d: FakeTool(name="write_file"))
+    agent = await build_agent(_cfg(tmp_path), _NoopUI(), llm=FakeLLM([]))
+    assert not isinstance(agent.tools["write_file"], ApprovedTool)
+
+
+async def test_build_agent_gives_deps_default_stores(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setitem(TOOLS, "fakes", lambda p, d: seen.append(d) or FakeTool())
+    await build_agent(_cfg(tmp_path), _NoopUI(), llm=FakeLLM([]))
+    assert seen[0].stores.conversation is not None
+
+
+class _RecordingNode(PipelineNode):
+    def __init__(self):
+        self.states: list[dict] = []
+        self.histories: list[list] = []
+
+    async def handle(self, ctx, next):
+        self.states.append(dict(ctx.state))
+        self.histories.append([(m.role, m.content) for m in ctx.messages])
+        ctx.response = f"reply to {ctx.user_input}"
+        return ctx
+
+
+async def test_chat_turn_state_and_history_threading():
+    from core.agent import Agent
+    from storage.stores import InMemoryStores
+
+    node, stores = _RecordingNode(), InMemoryStores()
+    agent = Agent(FakeLLM([]), [], [node])
+
+    await chat_turn(agent, stores, "s1", "one")
+    await chat_turn(agent, stores, "s1", "two", persona="pirate")
+
+    assert node.states[0] == {
+        "session_id": "s1",
+        "persona": "default",
+        "parent_id": None,
+        "artifact": None,
+        "summary": None,
+    }
+    assert node.states[1]["persona"] == "pirate"
+    assert node.states[1]["parent_id"] is not None
+    assert node.histories[1] == [("user", "one"), ("assistant", "reply to one")]
+
+
+async def test_chat_turn_parent_id_creates_sibling_branch():
+    from core.agent import Agent
+    from storage.stores import InMemoryStores
+
+    node, stores = _RecordingNode(), InMemoryStores()
+    agent = Agent(FakeLLM([]), [], [node])
+    conv = stores.conversation
+
+    await chat_turn(agent, stores, "s", "one")
+    first_reply = conv.head("s")
+    await chat_turn(agent, stores, "s", "two")
+    await chat_turn(agent, stores, "s", "two edited", parent_id=first_reply)
+    await chat_turn(agent, stores, "s", "three")  # continues the new head branch
+
+    assert node.histories[2] == [("user", "one"), ("assistant", "reply to one")]
+    assert [c for _, c in node.histories[3]] == [
+        "one",
+        "reply to one",
+        "two edited",
+        "reply to two edited",
+    ]
