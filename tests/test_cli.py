@@ -172,6 +172,7 @@ llm:
   provider: ollama
   model: fake
 pipeline:
+  - persist
   - react
 tools:
   - calculator
@@ -180,12 +181,23 @@ tools:
         encoding="utf-8",
     )
 
+    from storage.stores import InMemoryStores
+
     out = io.StringIO()
     ui = CliUI(out)
     llm = FakeLLM(["First answer.", "Second answer."])
-    agent = await build_agent(str(cfg_path), ui, llm=llm)
+    # Same `stores` passed to both: `chat_turn` reads history from it, and the
+    # `PersistNode` wired into `agent` via `build_agent` must write into that
+    # very instance for the second turn to see the first one.
+    stores = InMemoryStores()
+    agent = await build_agent(str(cfg_path), ui, llm=llm, stores=stores)
 
-    await run_cli(agent, ui, scripted_read_line(["first question", "second question", "/quit"]))
+    await run_cli(
+        agent,
+        ui,
+        scripted_read_line(["first question", "second question", "/quit"]),
+        stores=stores,
+    )
 
     second_call_messages = llm.calls[-1]["messages"]
     contents = [(m.role, m.content) for m in second_call_messages]
@@ -201,12 +213,16 @@ def test_tool_call_event_with_non_dict_args_does_not_crash():
 
 
 async def test_cli_uses_one_session_in_stores(tmp_path):
+    from core.agent import Agent
+    from nodes.persist_node import PersistNode
     from storage.stores import InMemoryStores
 
     out = io.StringIO()
     ui = CliUI(out)
     stores = InMemoryStores()
-    agent = make_agent(_ShortCircuitNode())
+    # `chat_turn` no longer appends on its own: a `PersistNode` in front of
+    # the short-circuit node is what makes the turn durable.
+    agent = Agent(FakeLLM([]), [], [PersistNode(stores.conversation), _ShortCircuitNode()])
     await run_cli(agent, ui, scripted_read_line(["a", "b", "/quit"]), stores, "sess")
     head = stores.conversation.head("sess")
     contents = [m.content for m in stores.conversation.branch("sess", head)]
