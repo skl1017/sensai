@@ -10,6 +10,8 @@ llm:
   max_context_tokens: 8192
 
 pipeline:                      # list order = execution order (wiki §9)
+  - persist: { dir: sessions/, persist_blocked: false }
+  - context: { sections: [profile] }
   - react: { max_iterations: 8, tool_timeout: 30, max_observation_chars: 4000 }
 
 tools:
