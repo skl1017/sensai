@@ -131,3 +131,28 @@ class FakeTool(ITool):
             return value
 
         return self.result
+
+
+class FakeUI:
+    """`UserInterface` double: records tokens/events, answers `ask` from `answers`.
+
+    `answers` is consumed in order; once exhausted (or when empty) `default`
+    is used. Questions asked are kept in `questions` as `(question, kind)`.
+    """
+
+    def __init__(self, answers: list[str] | None = None, default: str = "yes") -> None:
+        self.answers = list(answers or [])
+        self.default = default
+        self.tokens: list[str] = []
+        self.events: list[tuple[str, dict]] = []
+        self.questions: list[tuple[str, str]] = []
+
+    def on_token(self, text: str) -> None:
+        self.tokens.append(text)
+
+    def on_event(self, kind: str, data: dict) -> None:
+        self.events.append((kind, data))
+
+    async def ask(self, question: str, kind: str = "confirm") -> str:
+        self.questions.append((question, kind))
+        return self.answers.pop(0) if self.answers else self.default
