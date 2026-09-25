@@ -37,6 +37,7 @@ import signal
 import sys
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import TextIO
 
 from app import ROOT, build_agent, chat_turn, open_stores
@@ -403,6 +404,79 @@ async def _cmd_profile(ui: CliUI, stores: Stores, arg: str) -> None:
         ui.out.write("Unknown /profile subcommand, type /help\n")
 
 
+@dataclass
+class _Shell:
+    """What a slash-command handler may read or change."""
+
+    agent: Agent
+    ui: CliUI
+    stores: Stores
+    session_id: str
+    install_interrupt: InstallInterrupt
+    running: bool = True
+
+
+CommandHandler = Callable[[_Shell, str], Awaitable[None]]
+
+
+async def _do_quit(shell: _Shell, rest: str) -> None:
+    shell.running = False
+
+
+async def _do_help(shell: _Shell, rest: str) -> None:
+    shell.ui.out.write(HELP_TEXT)
+
+
+async def _do_sessions(shell: _Shell, rest: str) -> None:
+    await _cmd_sessions(shell.ui, shell.stores)
+
+
+async def _do_resume(shell: _Shell, rest: str) -> None:
+    shell.session_id = await _cmd_resume(shell.ui, shell.stores, shell.session_id, rest)
+
+
+async def _do_new(shell: _Shell, rest: str) -> None:
+    shell.session_id = uuid.uuid4().hex
+    shell.ui.out.write(f"New session: {shell.session_id}\n")
+
+
+async def _do_history(shell: _Shell, rest: str) -> None:
+    await _cmd_history(shell.ui, shell.stores, shell.session_id)
+
+
+async def _do_tree(shell: _Shell, rest: str) -> None:
+    await _cmd_tree(shell.ui, shell.stores, shell.session_id)
+
+
+async def _do_goto(shell: _Shell, rest: str) -> None:
+    await _cmd_goto(shell.ui, shell.stores, shell.session_id, rest)
+
+
+async def _do_edit(shell: _Shell, rest: str) -> None:
+    await _cmd_edit(
+        shell.agent, shell.ui, shell.stores, shell.session_id, rest, shell.install_interrupt
+    )
+
+
+async def _do_profile(shell: _Shell, rest: str) -> None:
+    await _cmd_profile(shell.ui, shell.stores, rest)
+
+
+COMMANDS: dict[str, CommandHandler] = {
+    "/quit": _do_quit,
+    "/exit": _do_quit,
+    "/help": _do_help,
+    "/sessions": _do_sessions,
+    "/resume": _do_resume,
+    "/new": _do_new,
+    "/history": _do_history,
+    "/tree": _do_tree,
+    "/goto": _do_goto,
+    "/edit": _do_edit,
+    "/profile": _do_profile,
+}
+
+
 async def run_cli(
     agent: Agent,
     ui: CliUI,
@@ -423,6 +497,7 @@ async def run_cli(
     stores = stores if stores is not None else InMemoryStores()
     session_id = session_id or uuid.uuid4().hex
     install_interrupt = install_interrupt or _default_install_interrupt
+    shell = _Shell(agent, ui, stores, session_id, install_interrupt)
 
     while True:
         try:
@@ -436,36 +511,17 @@ async def run_cli(
             continue
 
         if text.startswith("/"):
-            parts = text.split(maxsplit=1)
-            command = parts[0]
-            rest = parts[1] if len(parts) > 1 else ""
-
-            if command in ("/quit", "/exit"):
-                return
-            if command == "/help":
-                ui.out.write(HELP_TEXT)
-            elif command == "/sessions":
-                await _cmd_sessions(ui, stores)
-            elif command == "/resume":
-                session_id = await _cmd_resume(ui, stores, session_id, rest)
-            elif command == "/new":
-                session_id = uuid.uuid4().hex
-                ui.out.write(f"New session: {session_id}\n")
-            elif command == "/history":
-                await _cmd_history(ui, stores, session_id)
-            elif command == "/tree":
-                await _cmd_tree(ui, stores, session_id)
-            elif command == "/goto":
-                await _cmd_goto(ui, stores, session_id, rest)
-            elif command == "/edit":
-                await _cmd_edit(agent, ui, stores, session_id, rest, install_interrupt)
-            elif command == "/profile":
-                await _cmd_profile(ui, stores, rest)
-            else:
+            command, _, rest = text.partition(" ")
+            handler = COMMANDS.get(command)
+            if handler is None:
                 ui.out.write("Unknown command, type /help\n")
+                continue
+            await handler(shell, rest.strip())
+            if not shell.running:
+                return
             continue
 
-        await _run_turn(agent, ui, stores, session_id, text, None, install_interrupt)
+        await _run_turn(agent, ui, stores, shell.session_id, text, None, install_interrupt)
 
 
 async def amain(argv: list[str] | None = None) -> None:
