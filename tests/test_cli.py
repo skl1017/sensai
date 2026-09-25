@@ -212,6 +212,13 @@ def test_tool_call_event_with_non_dict_args_does_not_crash():
     assert "[calculator('6*7')]" in out.getvalue()
 
 
+def test_tool_call_event_for_ask_user_is_not_logged():
+    out = io.StringIO()
+    ui = CliUI(out)
+    ui.on_event("tool_call", {"step": 1, "name": "ask_user", "args": {"question": "Prénom ?"}})
+    assert out.getvalue() == ""
+
+
 async def test_cli_uses_one_session_in_stores(tmp_path):
     from core.agent import Agent
     from nodes.persist_node import PersistNode
@@ -240,3 +247,52 @@ async def test_cli_ask_yes_no_and_eof(monkeypatch):
 
     monkeypatch.setattr("builtins.input", eof)
     assert await ui.ask("ok?") == "no"
+
+
+async def test_cli_ask_text_and_eof(monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda: "  hello world  ")
+    out = io.StringIO()
+    ui = CliUI(out)
+    assert await ui.ask("what's up?", kind="text") == "hello world"
+    assert "what's up?" in out.getvalue()
+
+    def eof():
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", eof)
+    assert await ui.ask("what's up?", kind="text") == ""
+
+
+async def test_cli_ask_choice_valid_invalid_and_eof(monkeypatch):
+    answers = iter(["nope", "5", "2"])
+    monkeypatch.setattr("builtins.input", lambda: next(answers))
+    out = io.StringIO()
+    ui = CliUI(out)
+    assert await ui.ask("pick one", kind="choice", options=["red", "green", "blue"]) == "green"
+    text = out.getvalue()
+    assert "1) red" in text and "2) green" in text and "3) blue" in text
+    assert "Invalid choice" in text
+
+    def eof():
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", eof)
+    assert await ui.ask("pick one", kind="choice", options=["red"]) == ""
+
+
+async def test_cli_ask_choice_without_options_raises():
+    ui = CliUI(io.StringIO())
+    try:
+        await ui.ask("pick one", kind="choice")
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError")
+
+
+async def test_cli_ask_unknown_kind_raises():
+    ui = CliUI(io.StringIO())
+    try:
+        await ui.ask("??", kind="bogus")
+    except ValueError:
+        return
+    raise AssertionError("expected ValueError")

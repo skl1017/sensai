@@ -16,3 +16,4 @@ pipeline:                      # list order = execution order (wiki §9)
 
 tools:
   - calculator
+  - ask_user
