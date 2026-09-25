@@ -21,8 +21,15 @@ Reserved `ctx.state` keys
 - `session_id`: written by the entry point (`chat_turn`); read by
   `PersistNode`, `LoggingNode`, memory tools (via `ContextVar`). Session
   identifier.
-- `persona`: written by the entry point; read by `PersonaSection`. Name of
-  the active persona.
+- `persona`: written by the entry point (optional); read by
+  `PersonaSection`. Name of the active persona; absent means the config's
+  root `persona`.
+- `prompt`: written by `ContextBuilderNode` (`PersonaSection`); read by
+  `LoggingNode`, `CacheNode`. `{persona, template, version}` of the system
+  prompt used (A4).
+- `query`: written by `ContextBuilderNode` (`rewrite_query`); read by
+  `FewShotSection`, `RagSection`. Standalone rewrite of the user input,
+  used for retrieval only (A7).
 - `parent_id`: written by the entry point; read by `PersistNode`. Node
   under which the exchange is appended (X2).
 - `trace_id`: written by `LoggingNode`; read by `EvalNode` (`background`
@@ -34,9 +41,10 @@ Reserved `ctx.state` keys
   `ArtifactNode`. `True` if the response comes from the cache.
 - `summary`: written by the entry point (loaded value), then by
   `ContextBuilderNode`; read by `ContextBuilderNode`, `PersistNode`.
-  Rolling M2 summary and id of the last covered node.
+  Rolling M2 summary: `{text, covered, digest}` (number of leading history
+  messages it covers, and their hash to detect another branch).
 - `context_stats`: written by `ContextBuilderNode`; read by `LoggingNode`.
-  Tokens before and after compression.
+  `{tokens_before, tokens_after, compressed}`.
 - `retrieved_chunks`: written by `ContextBuilderNode`; read by `EvalNode`.
   Injected RAG chunks, with score and source.
 - `react_trace`: written by `ReActLoopNode`; read by `LoggingNode`,

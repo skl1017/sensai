@@ -9,9 +9,15 @@ llm:
   host: http://localhost:11434
   max_context_tokens: 8192
 
+persona: default                 # config/personas/default.yaml
+prompt_version: v2
+
 pipeline:                      # list order = execution order (wiki §9)
   - persist: { dir: sessions/, persist_blocked: false }
-  - context: { sections: [profile] }
+  - context:
+      sections: [persona, profile, fewshot]
+      budget: { reserve_output: 1024, trigger_ratio: 0.8, keep_last_turns: 4 }
+      rewrite_query: false
   - react: { max_iterations: 8, tool_timeout: 30, max_observation_chars: 4000 }
 
 tools:

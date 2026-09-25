@@ -8,10 +8,11 @@ configured by the test.
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
-from core.llm import ILLM
+from core.llm import ILLM, IEmbedder
 from core.tool import ITool
 from core.types import LLMChunk, Message, ToolCall
 
@@ -156,3 +157,26 @@ class FakeUI:
     async def ask(self, question: str, kind: str = "confirm") -> str:
         self.questions.append((question, kind))
         return self.answers.pop(0) if self.answers else self.default
+
+
+class FakeEmbedder(IEmbedder):
+    """Deterministic bag-of-words `IEmbedder` double.
+
+    Each text becomes a fixed-size vector of hashed lowercase word counts,
+    so texts sharing words have a higher cosine similarity. `calls` records
+    every batch embedded.
+    """
+
+    def __init__(self, dim: int = 256) -> None:
+        self.dim = dim
+        self.calls: list[list[str]] = []
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        self.calls.append(list(texts))
+        vectors = []
+        for text in texts:
+            vec = [0.0] * self.dim
+            for word in re.findall(r"\w+", text.lower()):
+                vec[sum(map(ord, word)) % self.dim] += 1.0
+            vectors.append(vec)
+        return vectors
