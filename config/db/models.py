@@ -1,6 +1,7 @@
 from datetime import datetime
 from sqlmodel import SQLModel, Field, Relationship, Column, JSON
 
+
 class IngestedFile(SQLModel, table=True):
     __tablename__ = "ingested_files"
 

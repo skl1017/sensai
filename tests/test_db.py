@@ -8,6 +8,7 @@ isolated temp directory. That gives every test a clean "data.db" and avoids
 polluting (or depending on) the real project database, without needing to touch
 db.py itself.
 """
+
 import importlib
 import json
 import struct
