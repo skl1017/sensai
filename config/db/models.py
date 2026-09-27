@@ -26,9 +26,7 @@ class Chunk(SQLModel, table=True):
     source_id: str
     doc_category: str | None = None
     created_at: str | None = None
-    access_level: str | None = None
     chunk_index: int | None = None
-    metadata_json: dict | None = Field(default=None, sa_column=Column(JSON))
 
     ingested_file_id: int | None = Field(
         default=None, foreign_key="ingested_files.id", ondelete="CASCADE"
