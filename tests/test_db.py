@@ -10,13 +10,12 @@ db.py itself.
 """
 
 import importlib
-import json
 import struct
 import sys
 from pathlib import Path
 
+import sqlite3
 import pytest
-import sqlite_vec
 from sqlalchemy import inspect, text
 from sqlmodel import SQLModel
 
@@ -77,7 +76,7 @@ def test_load_extension_is_disabled_after_setup(db_module):
     so further ad-hoc extension loading from raw SQL is blocked."""
     with db_module.engine.connect() as conn:
         raw_conn = conn.connection.dbapi_connection
-        with pytest.raises(Exception):
+        with pytest.raises(sqlite3.OperationalError):
             raw_conn.execute("SELECT load_extension('does_not_matter')")
 
 

@@ -1,6 +1,8 @@
-from core.vector_storage import IVectorStorage, VectorSearchResult
 import struct
+
 from sqlalchemy import event
+
+from core.vector_storage import IVectorStorage, VectorSearchResult
 
 
 class SqliteVectorStorage(IVectorStorage):

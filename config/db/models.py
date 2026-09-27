@@ -1,5 +1,6 @@
 from datetime import datetime
-from sqlmodel import SQLModel, Field, Relationship, Column, JSON
+
+from sqlmodel import Field, Relationship, SQLModel
 
 
 class IngestedFile(SQLModel, table=True):

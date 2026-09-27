@@ -1,8 +1,6 @@
+import sqlite_vec
 from sqlalchemy import create_engine, event
 from sqlmodel import SQLModel
-import sqlite_vec
-
-from models import IngestedFile, Chunk
 
 engine = create_engine("sqlite:///data.db")
 

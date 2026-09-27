@@ -1,5 +1,6 @@
 import pytest
 from sqlalchemy import create_engine
+
 from storage.vector_storage import SqliteVectorStorage
 
 EMBEDDING_DIM = 4  # petit pour les tests, plus lisible
