@@ -11,35 +11,35 @@ from nodes.query_rewriter import rewrite_query
 from tests.fakes import FakeLLM
 
 _HISTORY = [
-    Message("user", "Quelles sont les trois plus grandes villes de France ?"),
+    Message("user", "What are the three largest cities in France?"),
     Message(
         "assistant",
-        "Les trois plus grandes villes de France sont Paris, Marseille et Lyon.",
+        "The three largest cities in France are Paris, Marseille and Lyon.",
     ),
 ]
 
 
 async def test_rewrites_using_history() -> None:
-    llm = FakeLLM(["Quelle est la deuxième plus grande ville de France ?"])
+    llm = FakeLLM(["What is the second largest city in France?"])
 
-    result = await rewrite_query(llm, _HISTORY, "et le deuxième ?")
+    result = await rewrite_query(llm, _HISTORY, "and the second one?")
 
-    assert result == "Quelle est la deuxième plus grande ville de France ?"
+    assert result == "What is the second largest city in France?"
     assert len(llm.calls) == 1
     sent = llm.calls[0]["messages"]
     assert sent[0].role == "system"
     user_prompt = sent[1].content
-    assert "villes de France" in user_prompt
-    assert "Marseille et Lyon" in user_prompt
-    assert "et le deuxième ?" in user_prompt
+    assert "largest cities in France" in user_prompt
+    assert "Marseille and Lyon" in user_prompt
+    assert "and the second one?" in user_prompt
 
 
 async def test_empty_history_skips_llm_call() -> None:
     llm = FakeLLM(["should not be used"])
 
-    result = await rewrite_query(llm, [], "et le deuxième ?")
+    result = await rewrite_query(llm, [], "and the second one?")
 
-    assert result == "et le deuxième ?"
+    assert result == "and the second one?"
     assert llm.calls == []
 
 
@@ -47,9 +47,9 @@ async def test_history_without_user_or_assistant_skips_llm_call() -> None:
     llm = FakeLLM(["should not be used"])
     history = [Message("system", "you are a helpful assistant"), Message("tool", "42")]
 
-    result = await rewrite_query(llm, history, "et le deuxième ?")
+    result = await rewrite_query(llm, history, "and the second one?")
 
-    assert result == "et le deuxième ?"
+    assert result == "and the second one?"
     assert llm.calls == []
 
 
@@ -62,9 +62,9 @@ async def test_llm_error_falls_back_to_original_input(caplog: pytest.LogCaptureF
     llm = BoomLLM([])
 
     with caplog.at_level("WARNING"):
-        result = await rewrite_query(llm, _HISTORY, "et le deuxième ?")
+        result = await rewrite_query(llm, _HISTORY, "and the second one?")
 
-    assert result == "et le deuxième ?"
+    assert result == "and the second one?"
     assert "backend unavailable" in caplog.text
 
 
@@ -74,18 +74,18 @@ async def test_empty_output_falls_back_to_original_input(
     llm = FakeLLM(["   "])
 
     with caplog.at_level("WARNING"):
-        result = await rewrite_query(llm, _HISTORY, "et le deuxième ?")
+        result = await rewrite_query(llm, _HISTORY, "and the second one?")
 
-    assert result == "et le deuxième ?"
+    assert result == "and the second one?"
     assert "empty" in caplog.text.lower()
 
 
 async def test_quotes_and_label_are_stripped() -> None:
-    llm = FakeLLM(['Query: "Quelle est la deuxième plus grande ville de France ?"'])
+    llm = FakeLLM(['Query: "What is the second largest city in France?"'])
 
-    result = await rewrite_query(llm, _HISTORY, "et le deuxième ?")
+    result = await rewrite_query(llm, _HISTORY, "and the second one?")
 
-    assert result == "Quelle est la deuxième plus grande ville de France ?"
+    assert result == "What is the second largest city in France?"
 
 
 async def test_only_last_max_turns_are_included() -> None:
@@ -97,7 +97,7 @@ async def test_only_last_max_turns_are_included() -> None:
         Message("assistant", "second assistant reply"),
     ]
 
-    await rewrite_query(llm, history, "et le deuxième ?", max_turns=1)
+    await rewrite_query(llm, history, "and the second one?", max_turns=1)
 
     user_prompt = llm.calls[0]["messages"][1].content
     assert "second user message" in user_prompt
@@ -115,4 +115,4 @@ async def test_cancelled_error_propagates() -> None:
     llm = CancellingLLM([])
 
     with pytest.raises(asyncio.CancelledError):
-        await rewrite_query(llm, _HISTORY, "et le deuxième ?")
+        await rewrite_query(llm, _HISTORY, "and the second one?")

@@ -59,7 +59,10 @@ class PersonaSection(ContextSection):
     used when `ctx.state` carries no `persona` key (or an empty one);
     `prompt_version` pins a version for every persona, `None` meaning
     "latest" (resolved independently per turn, so a newly published version
-    is picked up without a restart).
+    is picked up without a restart). The default `priority` (100) puts the
+    persona *last* in the system prompt, right before the conversation:
+    small models follow the most recent instructions best, so the persona's
+    scope rules must not be buried under the profile or few-shot examples.
     """
 
     def __init__(
@@ -68,7 +71,7 @@ class PersonaSection(ContextSection):
         registry: PromptRegistry,
         default_persona: str = "default",
         prompt_version: str | None = None,
-        priority: int = 10,
+        priority: int = 100,
     ) -> None:
         self.personas_dir = Path(personas_dir)
         self.registry = registry

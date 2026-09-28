@@ -13,7 +13,7 @@ Two measurements:
   `config/fewshot.yaml` bank questions, does `FewShotSection` (`k=1`, real
   `OllamaEmbedder`) pick the paraphrased entry as its closest match?
 - `test_query_rewrite_improves_followup_hit_rate`: for a few pronoun-heavy
-  follow-ups ("et pour 300 ?" style), compares that same top-1 hit rate
+  follow-ups ("what about 300?" style), compares that same top-1 hit rate
   using the raw follow-up as the query versus `rewrite_query`'s standalone
   rewrite (real `Ollama` chat). The only hard assertion is that rewriting
   never hurts retrieval on this set (`with_rewrite_hits >= without_rewrite_hits`);
@@ -107,14 +107,14 @@ async def _top1_question(section: FewShotSection, query: str) -> str | None:
 # --- top-1 hit rate: paraphrases of bank questions -> the entry they paraphrase --------
 
 _TOP1_CASES = [
-    ("Comment calcule-t-on la dérivée de x² + 3x ?", "Quelle est la dérivée de x² + 3x ?"),
-    ("Comment simplifier 18 sur 24 ?", "Comment simplifier la fraction 18/24 ?"),
+    ("How do you differentiate x² + 3x?", "What is the derivative of x² + 3x?"),
+    ("How to reduce 18 over 24?", "How do I simplify the fraction 18/24?"),
     (
-        "Un triangle rectangle a des côtés de 3 et 4 cm, quelle longueur fait l'hypoténuse ?",
-        "Un triangle rectangle a des côtés de 3 cm et 4 cm. Quelle est l'hypoténuse ?",
+        "A right triangle has 3 and 4 cm legs, how long is the hypotenuse?",
+        "A right triangle has legs of 3 cm and 4 cm. What is the hypotenuse?",
     ),
-    ("Comment on lit un fichier CSV avec Python ?", "Comment lire un fichier CSV en Python ?"),
-    ("Résous 2x + 5 = 13.", "Résous l'équation 2x + 5 = 13."),
+    ("How can I load a CSV file with Python?", "How do I read a CSV file in Python?"),
+    ("Solve 2x + 5 = 13.", "Solve the equation 2x + 5 = 13."),
 ]
 
 
@@ -136,30 +136,30 @@ async def test_fewshot_top1_hit_rate(embedder):
 _FOLLOWUP_CASES = [
     (
         [
-            Message("user", "Comment calculer 20 % de 150 ?"),
-            Message("assistant", "20 % de 150 = 150 × 0,20 = 30."),
+            Message("user", "How do I compute 20% of 150?"),
+            Message("assistant", "20% of 150 = 150 × 0.20 = 30."),
         ],
-        "Et pour l'autre valeur ?",
-        "Comment calculer 20 % de 150 ?",
+        "And for the other value?",
+        "How do I compute 20% of 150?",
     ),
     (
         [
-            Message("user", "Comment simplifier la fraction 18/24 ?"),
-            Message("assistant", "Le PGCD de 18 et 24 est 6, donc 18/24 = 3/4."),
+            Message("user", "How do I simplify the fraction 18/24?"),
+            Message("assistant", "The GCD of 18 and 24 is 6, so 18/24 = 3/4."),
         ],
-        "Et celle-là ?",
-        "Comment simplifier la fraction 18/24 ?",
+        "And that one?",
+        "How do I simplify the fraction 18/24?",
     ),
     (
         [
             Message(
                 "user",
-                "Un triangle rectangle a des côtés de 3 cm et 4 cm. Quelle est l'hypoténuse ?",
+                "A right triangle has legs of 3 cm and 4 cm. What is the hypotenuse?",
             ),
-            Message("assistant", "D'après Pythagore : hypoténuse = √(3² + 4²) = 5 cm."),
+            Message("assistant", "By Pythagoras: hypotenuse = √(3² + 4²) = 5 cm."),
         ],
-        "Et pour le deuxième triangle ?",
-        "Un triangle rectangle a des côtés de 3 cm et 4 cm. Quelle est l'hypoténuse ?",
+        "And for the second triangle?",
+        "A right triangle has legs of 3 cm and 4 cm. What is the hypotenuse?",
     ),
 ]
 

@@ -69,7 +69,7 @@ def _build_over_budget_conversation() -> _Conversation:
     )
     old2 = make_turn(
         "What did we decide about the storage layer?",
-        "We discussed it at length and the decision is: on garde PostgreSQL.",
+        "We discussed it at length and the decision is: we keep PostgreSQL.",
     )
     kept = [make_turn(f"recent question {i}", f"recent answer {i}") for i in range(4)]
     system = Message("system", "You are a helpful assistant.")
@@ -83,7 +83,7 @@ async def test_over_budget_summarizes_old_turns_keeps_last_four_turns_and_curren
     messages, system, kept, current = _build_over_budget_conversation()
     original = list(messages)
 
-    summary_text = "Mirabelle Kovacs, ref 4817; decision: on garde PostgreSQL."
+    summary_text = "Mirabelle Kovacs, ref 4817; decision: we keep PostgreSQL."
     llm = FakeLLM(script=[summary_text], max_context_tokens=500)
     state: dict = {}
 
@@ -100,7 +100,7 @@ async def test_over_budget_summarizes_old_turns_keeps_last_four_turns_and_curren
     assert prompt[1].role == "user"
     assert "Mirabelle Kovacs" in prompt[1].content
     assert "4817" in prompt[1].content
-    assert "on garde PostgreSQL" in prompt[1].content
+    assert "we keep PostgreSQL" in prompt[1].content
 
     # summary injected into the system message, alongside the original content
     assert result[0].role == "system"
@@ -131,7 +131,7 @@ async def test_matching_saved_summary_is_reused_without_calling_the_llm():
     messages, system, kept, current = _build_over_budget_conversation()
     old_messages = messages[1:5]  # old1 + old2
 
-    saved_text = "Previously summarized: Mirabelle Kovacs, ref 4817, on garde PostgreSQL."
+    saved_text = "Previously summarized: Mirabelle Kovacs, ref 4817, we keep PostgreSQL."
     state = {
         "summary": {"text": saved_text, "covered": 4, "digest": _digest(old_messages)},
     }
@@ -155,7 +155,7 @@ async def test_forked_summary_digest_mismatch_is_ignored_and_overwritten():
     state = {
         "summary": {"text": stale_text, "covered": 4, "digest": "not-the-real-digest"},
     }
-    fresh_text = "Fresh summary: Mirabelle Kovacs, ref 4817, on garde PostgreSQL."
+    fresh_text = "Fresh summary: Mirabelle Kovacs, ref 4817, we keep PostgreSQL."
     llm = FakeLLM(script=[fresh_text], max_context_tokens=500)
 
     result = await apply_budget(list(messages), llm, state, reserve_output=0, trigger_ratio=0.01)

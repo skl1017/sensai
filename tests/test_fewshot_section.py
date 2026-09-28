@@ -15,24 +15,24 @@ from tests.fakes import FakeEmbedder, FakeLLM
 _BANK = {
     "examples": [
         {
-            "question": "Quelle est la dérivée de x²",
-            "answer": "La dérivée de x² est 2x.",
+            "question": "What is the derivative of x²",
+            "answer": "The derivative of x² is 2x.",
         },
         {
-            "question": "Comment rédiger un e-mail",
-            "answer": "Voici un modèle de mail.",
+            "question": "How to write an email",
+            "answer": "Here is an email template.",
         },
         {
-            "question": "Théorème de Pythagore triangle",
+            "question": "Pythagorean theorem triangle",
             "answer": "c² = a² + b²",
         },
         {
-            "question": "Comment additionner deux fractions",
-            "answer": "On les met au même dénominateur.",
+            "question": "How to add two fractions",
+            "answer": "Put them over a common denominator.",
         },
         {
-            "question": "Comment calculer un pourcentage",
-            "answer": "On multiplie par le taux exprimé en décimal.",
+            "question": "How to compute a percentage",
+            "answer": "Multiply by the rate as a decimal.",
         },
     ]
 }
@@ -67,9 +67,9 @@ async def test_most_relevant_example_is_injected_first(tmp_path):
     embedder = FakeEmbedder()
     section = FewShotSection(embedder, path, k=1)
 
-    text = await section.build(make_ctx("Quelle est la dérivée de x³"))
+    text = await section.build(make_ctx("What is the derivative of x³"))
 
-    expected_block = "Q: Quelle est la dérivée de x²\nA: La dérivée de x² est 2x."
+    expected_block = "Q: What is the derivative of x²\nA: The derivative of x² is 2x."
     assert text == f"Examples of good answers:\n\n{expected_block}"
 
 
@@ -78,7 +78,7 @@ async def test_k_is_respected(tmp_path):
     embedder = FakeEmbedder()
     section = FewShotSection(embedder, path, k=2)
 
-    text = await section.build(make_ctx("Quelle est la dérivée de x³"))
+    text = await section.build(make_ctx("What is the derivative of x³"))
 
     assert text.count("Q:") == 2
 
@@ -88,7 +88,7 @@ async def test_min_score_filters_out_everything_returns_none(tmp_path):
     embedder = FakeEmbedder()
     section = FewShotSection(embedder, path, k=3, min_score=1.1)  # unreachable score
 
-    text = await section.build(make_ctx("Quelle est la dérivée de x³"))
+    text = await section.build(make_ctx("What is the derivative of x³"))
 
     assert text is None
 
@@ -112,13 +112,13 @@ async def test_state_query_takes_precedence_over_user_input(tmp_path):
     section = FewShotSection(embedder, path, k=1)
 
     ctx = make_ctx(
-        user_input="Comment rédiger un e-mail professionnel",
-        state={"query": "Quelle est la dérivée de x³"},
+        user_input="How to write a professional email",
+        state={"query": "What is the derivative of x³"},
     )
     text = await section.build(ctx)
 
-    assert "dérivée" in text
-    assert "e-mail" not in text
+    assert "derivative" in text
+    assert "email" not in text
 
 
 # --- lazy single embedding of the bank ----------------------------------------------
@@ -129,8 +129,8 @@ async def test_bank_is_embedded_only_once_across_sequential_builds(tmp_path):
     embedder = FakeEmbedder()
     section = FewShotSection(embedder, path, k=1)
 
-    await section.build(make_ctx("Quelle est la dérivée de x³"))
-    await section.build(make_ctx("Comment additionner deux fractions"))
+    await section.build(make_ctx("What is the derivative of x³"))
+    await section.build(make_ctx("How to add two fractions"))
 
     bank_calls = [call for call in embedder.calls if len(call) == len(_BANK["examples"])]
     assert len(bank_calls) == 1
@@ -143,8 +143,8 @@ async def test_bank_is_embedded_only_once_across_concurrent_builds(tmp_path):
     section = FewShotSection(embedder, path, k=1)
 
     await asyncio.gather(
-        section.build(make_ctx("Quelle est la dérivée de x³")),
-        section.build(make_ctx("Comment additionner deux fractions")),
+        section.build(make_ctx("What is the derivative of x³")),
+        section.build(make_ctx("How to add two fractions")),
     )
 
     bank_calls = [call for call in embedder.calls if len(call) == len(_BANK["examples"])]
@@ -218,8 +218,9 @@ def test_from_config_custom_path():
 async def test_real_fewshot_yaml_loads_and_builds():
     section = FewShotSection(FakeEmbedder(), Path("config/fewshot.yaml"), k=3)
 
-    text = await section.build(make_ctx("Quelle est la dérivée de x^3 ?"))
+    text = await section.build(make_ctx("What is the derivative of x^3?"))
 
     assert text is not None
     assert text.startswith("Examples of good answers:")
     assert text.count("Q:") == 3
+

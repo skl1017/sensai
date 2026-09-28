@@ -1,8 +1,8 @@
 """Standalone-query rewriting for retrieval, before few-shot/RAG (A7, issue #32 part 2).
 
 `rewrite_query` turns the user's last message into a standalone question that
-resolves references to earlier turns (« et le deuxième ? » -> « Quelle est la
-deuxième plus grande ville de France ? »). The rewrite is only ever used for
+resolves references to earlier turns ("and the second one?" -> "What is the
+second largest city in France?"). The rewrite is only ever used for
 retrieval: callers store it in `ctx.state["query"]` and leave the message sent
 to the model (`ctx.user_input`) untouched.
 
