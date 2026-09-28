@@ -2,7 +2,7 @@ import struct
 
 from sqlalchemy import event
 
-from core.vector_storage import IVectorStorage, VectorSearchResult
+from core.storage import IVectorStorage, VectorSearchResult
 
 
 class SqliteVectorStorage(IVectorStorage):
