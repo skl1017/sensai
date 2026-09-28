@@ -1,4 +1,4 @@
-import models  # noqa: F401
+import config.db.models  # noqa: F401
 from sqlalchemy import create_engine, event
 from sqlmodel import SQLModel
 

@@ -19,40 +19,29 @@ import pytest
 from sqlalchemy import inspect, text
 from sqlmodel import SQLModel
 
-# db.py lives in config/ and imports its sibling models.py with a bare
-# `from models import ...` (not `from config.models import ...` or
-# `from .models import ...`). That only works if config/ itself is on
-# sys.path, so we add it here rather than importing "config.db".
-# Assumes this test file lives in <project_root>/tests/ and the code lives
-# in <project_root>/config/ — adjust CONFIG_DIR below if your layout differs.
-CONFIG_DIR = Path(__file__).resolve().parent.parent / "config" / "db"
-if str(CONFIG_DIR) not in sys.path:
-    sys.path.insert(0, str(CONFIG_DIR))
+import importlib
+import sys
+
+import pytest
+from sqlmodel import SQLModel
+
+MODULES = ("config.db.db", "config.db.models")
+
+
+def _purge():
+    for name in MODULES:
+        sys.modules.pop(name, None)
+    SQLModel.metadata.clear()
 
 
 @pytest.fixture()
 def db_module(tmp_path, monkeypatch):
-    """Import a fresh `db` module with data.db created inside tmp_path."""
     monkeypatch.chdir(tmp_path)
-
-    # Make sure we get a brand-new import (module-level setup code re-runs).
-    for mod_name in ("db", "models"):
-        sys.modules.pop(mod_name, None)
-
-    # SQLModel.metadata (and its declarative registry) is a shared, global
-    # object that survives even after "models" is removed from sys.modules.
-    # Clear it so re-importing models.py doesn't collide with Table objects
-    # left over from a previous test's import.
-    SQLModel.metadata.clear()
-
-    module = importlib.import_module("db")
-
+    _purge()
+    module = importlib.import_module("config.db.db")
     yield module
-
     module.engine.dispose()
-    sys.modules.pop("db", None)
-    sys.modules.pop("models", None)
-
+    _purge()
 
 def test_data_db_file_is_created(db_module, tmp_path):
     assert (tmp_path / "data.db").exists()
