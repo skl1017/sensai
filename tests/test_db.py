@@ -10,11 +10,11 @@ db.py itself.
 """
 
 import importlib
+import sqlite3
 import struct
 import sys
 from pathlib import Path
 
-import sqlite3
 import pytest
 from sqlalchemy import inspect, text
 from sqlmodel import SQLModel
