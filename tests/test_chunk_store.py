@@ -1,9 +1,9 @@
 import pytest
-from core.storage import IVectorStorage
 from sqlalchemy import create_engine
 from sqlmodel import Session, SQLModel, select
 
 from config.db.models import Chunk
+from core.storage import IVectorStorage
 from storage.chunk_store import ChunkStore
 from storage.ingest import ChunkData
 from storage.vector_storage import SqliteVectorStorage

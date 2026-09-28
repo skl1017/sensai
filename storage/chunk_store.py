@@ -1,8 +1,8 @@
-from storage.vector_storage import IVectorStorage
 from sqlmodel import Session, select
 
 from config.db.models import Chunk
 from storage.ingest import ChunkData
+from storage.vector_storage import IVectorStorage
 
 
 class ChunkStore:
