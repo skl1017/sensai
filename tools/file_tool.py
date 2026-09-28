@@ -118,4 +118,6 @@ def _parse_rule(entry: dict, index: int) -> Rule:
     modes = entry.get("modes")
     if not modes or not isinstance(modes, list):
         raise ValueError(f"{where}.modes: required, expected a non-empty list")
-    return Rule(root=Path(entry["root"]), modes=frozenset(modes), deny=bool(entry.get("deny", False)))
+    return Rule(
+        root=Path(entry["root"]), modes=frozenset(modes), deny=bool(entry.get("deny", False))
+    )
