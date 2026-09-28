@@ -223,4 +223,3 @@ async def test_real_fewshot_yaml_loads_and_builds():
     assert text is not None
     assert text.startswith("Examples of good answers:")
     assert text.count("Q:") == 3
-
