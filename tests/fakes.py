@@ -137,7 +137,7 @@ class FakeUI:
     """`UserInterface` double: records tokens/events, answers `ask` from `answers`.
 
     `answers` is consumed in order; once exhausted (or when empty) `default`
-    is used. Questions asked are kept in `questions` as `(question, kind)`.
+    is used. Questions asked are kept in `questions` as `(question, kind, options)`.
     """
 
     def __init__(self, answers: list[str] | None = None, default: str = "yes") -> None:
@@ -145,7 +145,7 @@ class FakeUI:
         self.default = default
         self.tokens: list[str] = []
         self.events: list[tuple[str, dict]] = []
-        self.questions: list[tuple[str, str]] = []
+        self.questions: list[tuple[str, str, list[str] | None]] = []
 
     def on_token(self, text: str) -> None:
         self.tokens.append(text)
@@ -153,6 +153,8 @@ class FakeUI:
     def on_event(self, kind: str, data: dict) -> None:
         self.events.append((kind, data))
 
-    async def ask(self, question: str, kind: str = "confirm") -> str:
-        self.questions.append((question, kind))
+    async def ask(
+        self, question: str, kind: str = "confirm", options: list[str] | None = None
+    ) -> str:
+        self.questions.append((question, kind, options))
         return self.answers.pop(0) if self.answers else self.default

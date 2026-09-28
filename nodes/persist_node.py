@@ -14,7 +14,12 @@ Only the current user/assistant pair is ever appended: whatever
 `ReActLoopNode` added to `ctx.messages` along the way (tool calls,
 observations, the budget-exhausted system instruction) is not part of the
 persisted node — the store's tree is a conversation history, not a replay
-log.
+log. One exception: a tool that sets `persist_exchange = True` (e.g.
+`ask_user`, whose result is information the user gave) has its exchange
+condensed to one `[Asked the user: ... -> ...]` line, prepended to the
+persisted assistant message from `ctx.state["react_trace"]`, so the answer
+is still in the next turn's history. The node only reads the flag on the
+tool (through `ctx.tools`), it never knows which tool it is.
 
 `ctx.state["blocked"]` (set by `InputGuardrailNode`) is skipped unless
 `persist_blocked` is `True`: a blocked request has no real assistant answer
@@ -31,6 +36,20 @@ from core.node import Next, PipelineNode
 from core.types import Context, Message
 
 _KNOWN_PARAMS = {"dir", "persist_blocked"}
+_NOTE_MAX_CHARS = 200
+
+
+def _exchange_notes(ctx: Context) -> list[str]:
+    """One `[Asked the user: <question> -> <answer>]` line per `persist_exchange` tool call."""
+    notes = []
+    for entry in ctx.state.get("react_trace") or []:
+        tool = ctx.tools.get(entry["action"])
+        observation = entry["observation"]
+        if not getattr(tool, "persist_exchange", False) or observation.startswith("Error:"):
+            continue
+        question = str(entry["args"].get("question", ""))[:_NOTE_MAX_CHARS]
+        notes.append(f"[Asked the user: {question} -> {observation[:_NOTE_MAX_CHARS]}]")
+    return notes
 
 
 class PersistNode(PipelineNode):
@@ -65,11 +84,12 @@ class PersistNode(PipelineNode):
         if not session_id:
             return ctx
 
+        answer = "\n".join(filter(None, [*_exchange_notes(ctx), ctx.response]))
         await asyncio.to_thread(
             self.store.append,
             session_id,
             state.get("parent_id"),
-            [Message("user", ctx.user_input), Message("assistant", ctx.response or "")],
+            [Message("user", ctx.user_input), Message("assistant", answer)],
             artifact=state.get("artifact"),
             summary=state.get("summary"),
         )

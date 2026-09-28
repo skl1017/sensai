@@ -41,6 +41,7 @@ from storage.conversation import ConversationStore
 from storage.profile import ProfileStore
 from storage.stores import InMemoryStores, Stores
 from tools.approved_tool import ApprovedTool
+from tools.ask_user_tool import AskUserTool
 from tools.calculator import CalculatorTool
 
 ROOT = "root"  # sentinel `parent_id`: fork under the session root (no parent)
@@ -78,6 +79,7 @@ NODES: dict[str, Callable[[dict, Deps], PipelineNode]] = {
 
 TOOLS: dict[str, Callable[[dict, Deps], ITool | list[ITool]]] = {
     "calculator": CalculatorTool.from_config,
+    "ask_user": AskUserTool.from_config,
 }
 
 

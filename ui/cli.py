@@ -91,8 +91,25 @@ class CliUI:
         self.out.write(text)
         self.out.flush()
 
-    async def ask(self, question: str, kind: str = "confirm") -> str:
-        """Yes/no prompt on stdin; EOF or anything but yes/y is a refusal."""
+    async def ask(
+        self, question: str, kind: str = "confirm", options: list[str] | None = None
+    ) -> str:
+        """Ask on stdin; see `UserInterface.ask` for the three `kind`s.
+
+        `"confirm"`: EOF or anything but yes/y is a refusal (`"no"`).
+        `"text"`: EOF returns `""`.
+        `"choice"`: prints `options` as a numbered list and re-prompts on an
+        invalid answer; EOF returns `""`.
+        """
+        if kind == "confirm":
+            return await self._ask_confirm(question)
+        if kind == "text":
+            return await self._ask_text(question)
+        if kind == "choice":
+            return await self._ask_choice(question, options or [])
+        raise ValueError(f"unknown ask kind {kind!r}")
+
+    async def _ask_confirm(self, question: str) -> str:
         self.out.write(f"\n{question} [yes/no] ")
         self.out.flush()
         try:
@@ -101,8 +118,35 @@ class CliUI:
             return "no"
         return "yes" if answer.strip().lower() in ("yes", "y") else "no"
 
+    async def _ask_text(self, question: str) -> str:
+        self.out.write(f"\n{question} ")
+        self.out.flush()
+        try:
+            answer = await asyncio.to_thread(input)
+        except EOFError:
+            return ""
+        return answer.strip()
+
+    async def _ask_choice(self, question: str, options: list[str]) -> str:
+        if not options:
+            raise ValueError("kind='choice' requires a non-empty `options` list")
+        self.out.write(f"\n{question}\n")
+        for i, option in enumerate(options, start=1):
+            self.out.write(f"  {i}) {option}\n")
+        while True:
+            self.out.write(f"Choice [1-{len(options)}]: ")
+            self.out.flush()
+            try:
+                answer = await asyncio.to_thread(input)
+            except EOFError:
+                return ""
+            answer = answer.strip()
+            if answer.isdigit() and 1 <= int(answer) <= len(options):
+                return options[int(answer) - 1]
+            self.out.write("Invalid choice, try again.\n")
+
     def on_event(self, kind: str, data: dict) -> None:
-        if kind == "tool_call":
+        if kind == "tool_call" and data["name"] != "ask_user":
             raw = data["args"]
             if isinstance(raw, dict):
                 args = ", ".join(f"{k}={v!r}" for k, v in raw.items())
@@ -112,6 +156,9 @@ class CliUI:
             self.out.flush()
         # "thought" is already streamed via on_token; "observation" and
         # "final" are left out on purpose to keep the CLI output clean.
+        # "ask_user" tool calls are skipped too: `CliUI.ask` (called right
+        # after) already shows the question, so logging the raw call here
+        # would just print it twice.
 
 
 async def _default_read_line(prompt: str) -> str:
