@@ -1,7 +1,7 @@
+import models  # noqa: F401
 import sqlite_vec
 from sqlalchemy import create_engine, event
 from sqlmodel import SQLModel
-import models
 
 engine = create_engine("sqlite:///data.db")
 
