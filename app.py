@@ -25,10 +25,11 @@ import asyncio
 import fnmatch
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from pathlib import Path
 
 from config_loader import AgentConfig, load_config, normalize  # noqa: F401
 from core.agent import Agent
-from core.llm import ILLM
+from core.llm import ILLM, IEmbedder
 from core.node import PipelineNode
 from core.tool import ITool
 from core.types import Context
@@ -52,12 +53,19 @@ class Deps:
     """Shared dependencies injected into node/tool factories.
 
     `stores` (conversation tree, memory DB, vector store, journal) is optional
-    until the storage layer is wired in.
+    until the storage layer is wired in. `embedder` is the LLM's embedder
+    when it has one (`FewShotSection`); `config_dir` is the directory of the
+    loaded `agent.yaml` (personas, prompts, few-shot bank are resolved
+    against it); `persona`/`prompt_version` are the config's root keys.
     """
 
     llm: ILLM
     ui: UserInterface
     stores: Stores | None = None
+    embedder: IEmbedder | None = None
+    config_dir: Path = Path("config")
+    persona: str = "default"
+    prompt_version: str | None = None
 
 
 def flatten(items: Iterable[ITool | list[ITool]]) -> list[ITool]:
@@ -159,7 +167,15 @@ async def build_agent(
     cfg = await asyncio.to_thread(load_config, cfg_path)
     resolved_llm = llm if llm is not None else build_llm(cfg.llm.as_dict())
     resolved_stores = stores if stores is not None else _stores_from_config(cfg)
-    deps = Deps(llm=resolved_llm, ui=ui, stores=resolved_stores)
+    deps = Deps(
+        llm=resolved_llm,
+        ui=ui,
+        stores=resolved_stores,
+        embedder=getattr(resolved_llm, "embedder", None),
+        config_dir=Path(cfg_path).parent,
+        persona=cfg.persona,
+        prompt_version=cfg.prompt_version,
+    )
 
     built: list[ITool | list[ITool]] = []
     for name, params in cfg.tools:
@@ -184,7 +200,7 @@ async def chat_turn(
     stores: Stores,
     session_id: str,
     text: str,
-    persona: str = "default",
+    persona: str | None = None,
     parent_id: str | None = None,
 ) -> Context:
     """Shared entry point for CLI / Web / scheduler (wiki §9.2, X2).
@@ -193,7 +209,10 @@ async def chat_turn(
     runs the agent. `parent_id`: `None` (default) means "the current session
     head"; `app.ROOT` means "no parent" (fork off the very first message);
     anything else is used as-is (an older node id, to fork a sibling branch
-    there). All store reads are synchronous I/O, so they go through
+    there). `persona`, when given, seeds `state["persona"]` for this turn
+    only; otherwise `PersonaSection` falls back to the config's root
+    `persona`. The history is the same either way, so switching persona
+    between turns never loses it (A5). All store reads are synchronous I/O, so they go through
     `asyncio.to_thread`.
 
     This function no longer appends the exchange: `PersistNode`, wired into
@@ -213,9 +232,10 @@ async def chat_turn(
     summary = await asyncio.to_thread(conv.load_summary, session_id)
     state = {
         "session_id": session_id,
-        "persona": persona,
         "parent_id": parent,
         "artifact": artifact,
         "summary": summary,
     }
+    if persona is not None:
+        state["persona"] = persona
     return await agent.run(text, history, state)
