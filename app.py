@@ -42,6 +42,7 @@ from storage.profile import ProfileStore
 from storage.stores import InMemoryStores, Stores
 from tools.approved_tool import ApprovedTool
 from tools.calculator import CalculatorTool
+from tools.file_tool import ListDirTool, PermissionPolicy, ReadFileTool, WriteFileTool
 
 ROOT = "root"  # sentinel `parent_id`: fork under the session root (no parent)
 
@@ -57,6 +58,7 @@ class Deps:
     llm: ILLM
     ui: UserInterface
     stores: Stores | None = None
+    permissions: PermissionPolicy | None = None
 
 
 def flatten(items: Iterable[ITool | list[ITool]]) -> list[ITool]:
@@ -78,6 +80,9 @@ NODES: dict[str, Callable[[dict, Deps], PipelineNode]] = {
 
 TOOLS: dict[str, Callable[[dict, Deps], ITool | list[ITool]]] = {
     "calculator": CalculatorTool.from_config,
+    "read_file": ReadFileTool.from_config,
+    "list_dir": ListDirTool.from_config,
+    "write_file": WriteFileTool.from_config,
 }
 
 

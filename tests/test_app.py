@@ -155,10 +155,24 @@ async def test_build_agent_real_config_with_fake_llm():
     agent = await build_agent("config/agent.yaml", ui, llm=llm, stores=InMemoryStores())
 
     assert "calculator" in agent.tools
+    assert "read_file" in agent.tools
+    assert "list_dir" in agent.tools
+    assert "write_file" in agent.tools
     assert len(agent.pipeline) == 3
     assert isinstance(agent.pipeline[0], PersistNode)
     assert isinstance(agent.pipeline[1], ContextBuilderNode)
     assert isinstance(agent.pipeline[2], ReActLoopNode)
+
+
+async def test_write_file_requires_approval_in_real_config():
+    from tools.approved_tool import ApprovedTool
+
+    agent = await build_agent(
+        "config/agent.yaml", _NoopUI(), llm=FakeLLM([]), stores=InMemoryStores()
+    )
+    assert isinstance(agent.tools["write_file"], ApprovedTool)
+    assert not isinstance(agent.tools["read_file"], ApprovedTool)
+    assert not isinstance(agent.tools["list_dir"], ApprovedTool)
 
 
 def test_deps_dataclass_fields():

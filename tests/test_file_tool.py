@@ -1,4 +1,4 @@
-"""Tests for `PermissionPolicy`/`Rule` (T4, wiki §8.2)."""
+"""Tests for `PermissionPolicy`/`Rule` and the file tools (T4, wiki §8.2)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,22 @@ from pathlib import Path
 
 import pytest
 
-from tools.file_tool import PermissionDenied, PermissionPolicy, Rule
+from core.tool import ITool
+from tools.file_tool import (
+    MAX_READ_BYTES,
+    ListDirTool,
+    PermissionDenied,
+    PermissionPolicy,
+    ReadFileTool,
+    Rule,
+    WriteFileTool,
+)
+
+
+class _Deps:
+    """Minimal stand-in for `app.Deps`: just enough for `_shared_policy` to cache on."""
+
+    permissions = None
 
 
 def _policy(tmp_path, *, deny_subdir=False):
@@ -214,3 +229,205 @@ class TestFromConfig:
         assert allowed == Path("data/whatever.yaml").resolve()
         with pytest.raises(PermissionDenied):
             policy.check("/etc/passwd", "read")
+
+
+# --- file tools (#40) ----------------------------------------------------------
+
+
+class TestReadFileTool:
+    def _tool(self, tmp_path):
+        root = tmp_path / "sandbox"
+        root.mkdir()
+        policy = PermissionPolicy([Rule(root=root, modes={"read", "write"})])
+        return ReadFileTool(policy), root
+
+    async def test_reads_small_file(self, tmp_path):
+        tool, root = self._tool(tmp_path)
+        f = root / "hello.txt"
+        f.write_text("hello world")
+        assert await tool.run(path=str(f)) == "hello world"
+
+    async def test_truncates_large_file_with_note(self, tmp_path):
+        tool, root = self._tool(tmp_path)
+        f = root / "big.txt"
+        f.write_bytes(b"x" * (MAX_READ_BYTES + 100))
+        result = await tool.run(path=str(f))
+        assert result.startswith("x" * 10)
+        assert len(result) < MAX_READ_BYTES + 100
+        assert "truncated" in result
+
+    async def test_missing_file_raises(self, tmp_path):
+        tool, root = self._tool(tmp_path)
+        with pytest.raises(FileNotFoundError):
+            await tool.run(path=str(root / "nope.txt"))
+
+    async def test_outside_root_denied(self, tmp_path):
+        tool, root = self._tool(tmp_path)
+        outside = tmp_path / "outside.txt"
+        outside.write_text("nope")
+        with pytest.raises(PermissionDenied):
+            await tool.run(path=str(outside))
+
+    def test_from_config_wires_shared_policy(self, tmp_path):
+        cfg = tmp_path / "permissions.yaml"
+        cfg.write_text("rules:\n  - root: data/\n    modes: [read]\n", encoding="utf-8")
+        tool = ReadFileTool.from_config({"permissions_path": str(cfg)}, _Deps())
+        assert isinstance(tool.policy, PermissionPolicy)
+
+
+class TestListDirTool:
+    def _tool_with_deny(self, tmp_path):
+        root = tmp_path / "sandbox"
+        root.mkdir()
+        secret = root / "secret"
+        secret.mkdir()
+        policy = PermissionPolicy(
+            [Rule(root=root, modes={"read"}), Rule(root=secret, modes={"read"}, deny=True)]
+        )
+        return ListDirTool(policy), root
+
+    async def test_lists_files_and_dirs(self, tmp_path):
+        root = tmp_path / "sandbox"
+        root.mkdir()
+        (root / "a.txt").write_text("x")
+        (root / "sub").mkdir()
+        policy = PermissionPolicy([Rule(root=root, modes={"read"})])
+        tool = ListDirTool(policy)
+        result = await tool.run(path=str(root))
+        assert set(result.split("\n")) == {"a.txt", "sub/"}
+
+    async def test_empty_directory_reports_empty(self, tmp_path):
+        root = tmp_path / "sandbox"
+        root.mkdir()
+        policy = PermissionPolicy([Rule(root=root, modes={"read"})])
+        tool = ListDirTool(policy)
+        assert await tool.run(path=str(root)) == "(empty)"
+
+    async def test_filters_out_denied_entries(self, tmp_path):
+        tool, root = self._tool_with_deny(tmp_path)
+        (root / "public.txt").write_text("hi")
+        result = await tool.run(path=str(root))
+        assert "public.txt" in result
+        assert "secret" not in result
+
+    async def test_non_directory_path_raises(self, tmp_path):
+        root = tmp_path / "sandbox"
+        root.mkdir()
+        f = root / "f.txt"
+        f.write_text("x")
+        policy = PermissionPolicy([Rule(root=root, modes={"read"})])
+        tool = ListDirTool(policy)
+        with pytest.raises(NotADirectoryError):
+            await tool.run(path=str(f))
+
+    async def test_outside_root_denied(self, tmp_path):
+        root = tmp_path / "sandbox"
+        root.mkdir()
+        policy = PermissionPolicy([Rule(root=root, modes={"read"})])
+        tool = ListDirTool(policy)
+        with pytest.raises(PermissionDenied):
+            await tool.run(path=str(tmp_path))
+
+    def test_from_config_wires_shared_policy(self, tmp_path):
+        cfg = tmp_path / "permissions.yaml"
+        cfg.write_text("rules:\n  - root: data/\n    modes: [read]\n", encoding="utf-8")
+        tool = ListDirTool.from_config({"permissions_path": str(cfg)}, _Deps())
+        assert isinstance(tool.policy, PermissionPolicy)
+
+
+class TestWriteFileTool:
+    def _tool(self, tmp_path):
+        root = tmp_path / "sandbox"
+        root.mkdir()
+        policy = PermissionPolicy([Rule(root=root, modes={"read", "write"})])
+        return WriteFileTool(policy), root
+
+    async def test_create_writes_new_file(self, tmp_path):
+        tool, root = self._tool(tmp_path)
+        target = root / "new.txt"
+        result = await tool.run(path=str(target), content="hi")
+        assert target.read_text() == "hi"
+        assert "new.txt" in result
+
+    async def test_create_fails_if_file_exists(self, tmp_path):
+        tool, root = self._tool(tmp_path)
+        target = root / "existing.txt"
+        target.write_text("old")
+        with pytest.raises(FileExistsError):
+            await tool.run(path=str(target), content="new")
+        assert target.read_text() == "old"
+
+    async def test_overwrite_replaces_existing_content(self, tmp_path):
+        tool, root = self._tool(tmp_path)
+        target = root / "existing.txt"
+        target.write_text("old")
+        await tool.run(path=str(target), content="new", mode="overwrite")
+        assert target.read_text() == "new"
+
+    async def test_overwrite_creates_file_if_missing(self, tmp_path):
+        tool, root = self._tool(tmp_path)
+        target = root / "brand_new.txt"
+        await tool.run(path=str(target), content="hi", mode="overwrite")
+        assert target.read_text() == "hi"
+
+    async def test_unsupported_mode_raises(self, tmp_path):
+        tool, root = self._tool(tmp_path)
+        with pytest.raises(ValueError):
+            await tool.run(path=str(root / "f.txt"), content="x", mode="delete")
+
+    async def test_write_denied_outside_root(self, tmp_path):
+        tool, root = self._tool(tmp_path)
+        outside = tmp_path / "outside.txt"
+        with pytest.raises(PermissionDenied):
+            await tool.run(path=str(outside), content="x")
+        assert not outside.exists()
+
+    async def test_write_denied_when_only_read_allowed(self, tmp_path):
+        root = tmp_path / "sandbox"
+        root.mkdir()
+        policy = PermissionPolicy([Rule(root=root, modes={"read"})])
+        tool = WriteFileTool(policy)
+        with pytest.raises(PermissionDenied):
+            await tool.run(path=str(root / "f.txt"), content="x")
+
+    def test_from_config_wires_shared_policy(self, tmp_path):
+        cfg = tmp_path / "permissions.yaml"
+        cfg.write_text("rules:\n  - root: data/\n    modes: [write]\n", encoding="utf-8")
+        tool = WriteFileTool.from_config({"permissions_path": str(cfg)}, _Deps())
+        assert isinstance(tool.policy, PermissionPolicy)
+
+
+class TestSharedPolicyAcrossTools:
+    def test_from_config_shares_one_instance_across_the_three_tools(self, tmp_path):
+        cfg = tmp_path / "permissions.yaml"
+        cfg.write_text("rules:\n  - root: data/\n    modes: [read, write]\n", encoding="utf-8")
+
+        deps = _Deps()
+        params = {"permissions_path": str(cfg)}
+        read_tool = ReadFileTool.from_config(params, deps)
+        write_tool = WriteFileTool.from_config(params, deps)
+        list_tool = ListDirTool.from_config(params, deps)
+
+        assert read_tool.policy is write_tool.policy is list_tool.policy
+
+    def test_different_deps_get_independent_policies(self, tmp_path):
+        cfg = tmp_path / "permissions.yaml"
+        cfg.write_text("rules:\n  - root: data/\n    modes: [read]\n", encoding="utf-8")
+
+        params = {"permissions_path": str(cfg)}
+        tool_a = ReadFileTool.from_config(params, _Deps())
+        tool_b = ReadFileTool.from_config(params, _Deps())
+        assert tool_a.policy is not tool_b.policy
+
+
+class TestFileToolsSchemaAndContract:
+    @pytest.mark.parametrize(
+        "tool_cls,name",
+        [(ReadFileTool, "read_file"), (ListDirTool, "list_dir"), (WriteFileTool, "write_file")],
+    )
+    def test_is_itool_with_expected_name_and_schema(self, tool_cls, name):
+        tool = tool_cls(PermissionPolicy([]))
+        assert isinstance(tool, ITool)
+        assert tool.name == name
+        assert tool.parameters["type"] == "object"
+        assert tool.parameters["additionalProperties"] is False
