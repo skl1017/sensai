@@ -31,13 +31,15 @@ _KINDS = ("text", "choice", "confirm")
 class AskUserTool(ITool):
     name = "ask_user"
     description = (
-        "Use this tool to ask the user a question whenever a piece of information you "
-        "need (a date, a name, a choice, a confirmation, ...) is missing from the "
-        "conversation and you cannot proceed without it. Do NOT ask the question in "
-        "your own reply text and do NOT guess or invent the missing detail: call this "
-        "tool instead, so the user's answer is captured. kind='confirm' for a yes/no "
-        "question, kind='choice' with `options` for a multiple-choice question, "
-        "kind='text' (default) for anything else."
+        "Use this tool to ask the user a question when a piece of information you need "
+        "(a date, a name, a choice, a confirmation, ...) is missing and you cannot proceed "
+        "without it. First look in the conversation history, including earlier answers "
+        "recorded as '[Asked the user: ...]': if the information is already there, use it "
+        "and do NOT ask again. Never ask the same question twice. Do NOT ask in your own "
+        "reply text and do NOT guess or invent the missing detail: call this tool instead, "
+        "so the user's answer is captured. kind='confirm' for a yes/no question, "
+        "kind='choice' with `options` for a multiple-choice question, kind='text' (default) "
+        "for anything else."
     )
     parameters = {
         "type": "object",
@@ -61,6 +63,7 @@ class AskUserTool(ITool):
         "additionalProperties": False,
     }
     enforces_own_timeout = True
+    persist_exchange = True
 
     def __init__(self, ui: UserInterface, timeout: float | None = None) -> None:
         self.ui = ui

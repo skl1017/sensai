@@ -23,6 +23,13 @@ def test_declares_no_side_effect_and_owns_its_timeout():
     assert tool.enforces_own_timeout is True
 
 
+def test_exchange_is_persisted_and_description_tells_to_check_history_first():
+    tool = AskUserTool(FakeUI())
+    assert tool.persist_exchange is True
+    assert "history" in tool.description
+    assert "twice" in tool.description
+
+
 async def test_text_kind_is_the_default_and_returns_the_answer():
     ui = FakeUI(["Marin"])
     result = await AskUserTool(ui).run(question="Quel est ton prénom ?")

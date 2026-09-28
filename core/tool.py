@@ -27,6 +27,7 @@ class ITool(ABC):
     description: str  # read by the model: say WHEN to use it
     parameters: dict  # JSON Schema, type "object", additionalProperties: false recommended
     enforces_own_timeout: bool = False  # True: the node does not apply its own timeout
+    persist_exchange: bool = False  # True: `PersistNode` keeps (args -> result) in the history
 
     @abstractmethod
     async def run(self, **kwargs) -> str: ...
