@@ -1,5 +1,5 @@
 from datetime import datetime
-
+from pydantic import NaiveDatetime
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -9,9 +9,9 @@ class IngestedFile(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     file_name: str = Field(index=True)
     file_path: str = Field(unique=True, index=True)
-    last_modified: datetime
+    last_modified: NaiveDatetime
     content_hash: str
-    ingested_at: datetime = Field(default_factory=datetime.utcnow)
+    ingested_at: NaiveDatetime = Field(default_factory=datetime.utcnow)
     status: str = Field(default="synced")
 
     chunks: list["Chunk"] = Relationship(
