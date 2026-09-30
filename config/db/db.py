@@ -1,7 +1,7 @@
-import config.db.models  # noqa: F401
 from sqlalchemy import create_engine, event
 from sqlmodel import SQLModel
 
+import config.db.models  # noqa: F401
 from storage.vector_storage import SqliteVectorStorage
 
 engine = create_engine("sqlite:///data.db")

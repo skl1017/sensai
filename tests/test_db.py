@@ -13,16 +13,9 @@ import importlib
 import sqlite3
 import struct
 import sys
-from pathlib import Path
 
 import pytest
 from sqlalchemy import inspect, text
-from sqlmodel import SQLModel
-
-import importlib
-import sys
-
-import pytest
 from sqlmodel import SQLModel
 
 MODULES = ("config.db.db", "config.db.models")
@@ -42,6 +35,7 @@ def db_module(tmp_path, monkeypatch):
     yield module
     module.engine.dispose()
     _purge()
+
 
 def test_data_db_file_is_created(db_module, tmp_path):
     assert (tmp_path / "data.db").exists()

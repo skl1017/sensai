@@ -1,5 +1,7 @@
-from sqlmodel import Session, select
 from dataclasses import dataclass
+
+from sqlmodel import Session, select
+
 from config.db.models import Chunk
 from storage.vector_storage import IVectorStorage
 

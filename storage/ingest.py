@@ -1,16 +1,19 @@
-from pathlib import Path
+import asyncio
+import hashlib
+import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+
+from sqlmodel import Session, delete, select
+
 from config.db.db import engine
 from config.db.models import IngestedFile
-from sqlmodel import Session, select, delete
-import hashlib
-from storage.chunk_store import ChunkStore, ChunkData
-from storage.vector_storage import SqliteVectorStorage
 from core.llm import IEmbedder
 from llm.ollama import OllamaEmbedder
-import uuid
-import asyncio
-from datetime import datetime, timezone
+from storage.chunk_store import ChunkData, ChunkStore
+from storage.vector_storage import SqliteVectorStorage
+
 
 def to_ingested(p) -> IngestedFile:
     path = Path(p.path)
@@ -18,15 +21,16 @@ def to_ingested(p) -> IngestedFile:
         file_path=p.path,
         content_hash=p.hash,
         file_name=path.name,
-        last_modified=datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        last_modified=datetime.fromtimestamp(path.stat().st_mtime, tz=UTC),
     )
+
 
 def read_blocks(path: str, block_size: int = 500, overlap: int = 50):
     if overlap >= block_size:
         raise ValueError("overlap should be < block_size")
     step = block_size - overlap
 
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         buffer = f.read(block_size)
         i = 0
         while buffer:
@@ -53,8 +57,8 @@ async def embed_file(
                 source_id=source_id,
                 chunk_index=i,
                 text=block,
-                created_at=datetime.now(timezone.utc).isoformat(),
-                doc_category=None
+                created_at=datetime.now(UTC).isoformat(),
+                doc_category=None,
             )
         )
         texts.append(block)
@@ -109,7 +113,6 @@ async def ingest(path: str):
     vector_store = SqliteVectorStorage(engine)
     chunk_store = ChunkStore(engine, vector_store)
     with Session(engine) as session:
-
         to_remove: list[IngestedFile] = session.exec(
             select(IngestedFile).where(IngestedFile.file_path.in_(files_to_remove))
         ).all()
@@ -117,7 +120,6 @@ async def ingest(path: str):
             await chunk_store.delete_by_source(p.id)
         session.exec(delete(IngestedFile).where(IngestedFile.id.in_([p.id for p in to_remove])))
         session.commit()
-
 
         session.add_all([to_ingested(p) for p in files_to_add])
         session.commit()
