@@ -97,7 +97,7 @@ def diff(path: str):
         }
     local_to_check = {FileHash(p, file_hash(Path(p))) for p in files_to_check}
 
-    files_to_replace =  local_to_check - remote_to_check
+    files_to_replace = local_to_check - remote_to_check
 
     added_files = local_files - remote_files
     removed_files = remote_files - local_files
@@ -107,7 +107,9 @@ def diff(path: str):
     return files_to_remove, files_to_add
 
 
-async def ingest(path: str):
+async def ingest(
+    path: str = ".docs/",
+):
     files_to_remove, files_to_add = diff(path)
     vector_store = SqliteVectorStorage(engine)
     chunk_store = ChunkStore(engine, vector_store)
@@ -129,4 +131,3 @@ async def ingest(path: str):
         for p in to_add:
             chunks, embeddings = await embed_file(p.id, p.file_path, OllamaEmbedder())
             await chunk_store.add_chunks(chunks, embeddings)
-
