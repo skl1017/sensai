@@ -1,8 +1,19 @@
+from dataclasses import dataclass
+
 from sqlmodel import Session, select
 
 from config.db.models import Chunk
-from storage.ingest import ChunkData
 from storage.vector_storage import IVectorStorage
+
+
+@dataclass
+class ChunkData:
+    id: str
+    text: str
+    source_id: int
+    chunk_index: int
+    doc_category: str | None
+    created_at: str
 
 
 class ChunkStore:

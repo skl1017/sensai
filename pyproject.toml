@@ -14,6 +14,9 @@ dependencies = [
     "sqlmodel",
     "aiosqlite",
     "sqlite-vec",
+    "dotenv",
+    "pypdf",
+    "python-docx"
 ]
 
 [project.optional-dependencies]

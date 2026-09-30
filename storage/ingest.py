@@ -1,11 +1,169 @@
+import hashlib
+import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+
+from sqlmodel import Session, delete, select
+
+from config.db.db import engine
+from config.db.models import IngestedFile
+from core.llm import IEmbedder
+from llm.ollama import OllamaEmbedder
+from storage.chunk_store import ChunkData, ChunkStore
+from storage.vector_storage import SqliteVectorStorage
+
+TEXT_EXTENSIONS = {".txt", ".md"}
+SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | {".pdf", ".docx"}
 
 
-@dataclass
-class ChunkData:
-    id: str
-    text: str
-    source_id: str
-    chunk_index: int
-    doc_category: str | None
-    created_at: str
+def to_ingested(p) -> IngestedFile:
+    path = Path(p.path)
+    return IngestedFile(
+        file_path=p.path,
+        content_hash=p.hash,
+        file_name=path.name,
+        last_modified=datetime.fromtimestamp(path.stat().st_mtime, tz=UTC),
+    )
+
+
+def iter_text(path: str) -> Iterator[str]:
+    suffix = Path(path).suffix.lower()
+
+    if suffix in TEXT_EXTENSIONS:
+        with open(path, encoding="utf-8") as f:
+            while piece := f.read(65536):
+                yield piece
+
+    elif suffix == ".pdf":
+        from pypdf import PdfReader
+
+        for page in PdfReader(path).pages:
+            yield (page.extract_text() or "") + "\n"
+
+    elif suffix == ".docx":
+        from docx import Document
+
+        doc = Document(path)
+        for paragraph in doc.paragraphs:
+            yield paragraph.text + "\n"
+        for table in doc.tables:
+            for row in table.rows:
+                yield " | ".join(cell.text for cell in row.cells) + "\n"
+
+    else:
+        raise ValueError(f"Unsupported file type: {suffix!r}")
+
+
+def read_blocks(path: str, block_size: int = 500, overlap: int = 50) -> Iterator[tuple[str, int]]:
+    if overlap >= block_size:
+        raise ValueError("overlap should be < block_size")
+    step = block_size - overlap
+
+    buffer = ""
+    i = 0
+    for piece in iter_text(path):
+        buffer += piece
+        while len(buffer) >= block_size:
+            yield buffer[:block_size], i
+            i += 1
+            buffer = buffer[step:]
+
+    if buffer and (i == 0 or len(buffer) > overlap):
+        yield buffer, i
+
+
+async def embed_file(
+    source_id: int, path: str, embedder: IEmbedder
+) -> tuple[list[ChunkData], list[list[float]]]:
+
+    texts: list[str] = []
+    chunk_data: list[ChunkData] = []
+
+    for block, i in read_blocks(path):
+        chunk_data.append(
+            ChunkData(
+                id=str(uuid.uuid4()),
+                source_id=source_id,
+                chunk_index=i,
+                text=block,
+                created_at=datetime.now(UTC).isoformat(),
+                doc_category=None,
+            )
+        )
+        texts.append(block)
+    embedded = await embedder.embed(texts)
+    return chunk_data, embedded
+
+
+def file_hash(path: Path, chunk_size: int = 65536) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        while block := f.read(chunk_size):
+            h.update(block)
+    return h.hexdigest()
+
+
+@dataclass(frozen=True)
+class FileHash:
+    path: str
+    hash: str
+
+
+def diff(path: str):
+    local_files = {
+        p.as_posix()
+        for p in Path(path).rglob("*")
+        if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
+    }
+
+    with Session(engine) as session:
+        results = session.exec(select(IngestedFile)).all()
+    remote_files = {p.file_path for p in results}
+
+    files_to_check = remote_files & local_files
+
+    with Session(engine) as session:
+        remote_to_check = {
+            FileHash(p.file_path, p.content_hash)
+            for p in session.exec(
+                select(IngestedFile).where(IngestedFile.file_path.in_(files_to_check))
+            ).all()
+        }
+    local_to_check = {FileHash(p, file_hash(Path(p))) for p in files_to_check}
+
+    files_to_replace = local_to_check - remote_to_check
+
+    added_files = local_files - remote_files
+    removed_files = remote_files - local_files
+
+    files_to_remove = list(removed_files | {p.path for p in files_to_replace})
+    files_to_add = list({FileHash(p, file_hash(Path(p))) for p in added_files} | files_to_replace)
+    return files_to_remove, files_to_add
+
+
+async def ingest(
+    path: str = ".docs/",
+):
+    files_to_remove, files_to_add = diff(path)
+    vector_store = SqliteVectorStorage(engine)
+    chunk_store = ChunkStore(engine, vector_store)
+    with Session(engine) as session:
+        to_remove: list[IngestedFile] = session.exec(
+            select(IngestedFile).where(IngestedFile.file_path.in_(files_to_remove))
+        ).all()
+        for p in to_remove:
+            await chunk_store.delete_by_source(p.id)
+        session.exec(delete(IngestedFile).where(IngestedFile.id.in_([p.id for p in to_remove])))
+        session.commit()
+
+        session.add_all([to_ingested(p) for p in files_to_add])
+        session.commit()
+
+        to_add: list[IngestedFile] = session.exec(
+            select(IngestedFile).where(IngestedFile.file_path.in_([p.path for p in files_to_add]))
+        ).all()
+        for p in to_add:
+            chunks, embeddings = await embed_file(p.id, p.file_path, OllamaEmbedder())
+            await chunk_store.add_chunks(chunks, embeddings)
