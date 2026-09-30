@@ -97,7 +97,7 @@ def diff(path: str):
         }
     local_to_check = {FileHash(p, file_hash(Path(p))) for p in files_to_check}
 
-    files_to_replace = remote_to_check ^ local_to_check
+    files_to_replace =  local_to_check - remote_to_check
 
     added_files = local_files - remote_files
     removed_files = remote_files - local_files
