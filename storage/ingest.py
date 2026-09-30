@@ -1,5 +1,6 @@
 import hashlib
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,6 +14,9 @@ from llm.ollama import OllamaEmbedder
 from storage.chunk_store import ChunkData, ChunkStore
 from storage.vector_storage import SqliteVectorStorage
 
+TEXT_EXTENSIONS = {".txt", ".md"}
+SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | {".pdf", ".docx"}
+
 
 def to_ingested(p) -> IngestedFile:
     path = Path(p.path)
@@ -24,22 +28,50 @@ def to_ingested(p) -> IngestedFile:
     )
 
 
-def read_blocks(path: str, block_size: int = 500, overlap: int = 50):
+def iter_text(path: str) -> Iterator[str]:
+    suffix = Path(path).suffix.lower()
+
+    if suffix in TEXT_EXTENSIONS:
+        with open(path, encoding="utf-8") as f:
+            while piece := f.read(65536):
+                yield piece
+
+    elif suffix == ".pdf":
+        from pypdf import PdfReader
+
+        for page in PdfReader(path).pages:
+            yield (page.extract_text() or "") + "\n"
+
+    elif suffix == ".docx":
+        from docx import Document
+
+        doc = Document(path)
+        for paragraph in doc.paragraphs:
+            yield paragraph.text + "\n"
+        for table in doc.tables:
+            for row in table.rows:
+                yield " | ".join(cell.text for cell in row.cells) + "\n"
+
+    else:
+        raise ValueError(f"Unsupported file type: {suffix!r}")
+
+
+def read_blocks(path: str, block_size: int = 500, overlap: int = 50) -> Iterator[tuple[str, int]]:
     if overlap >= block_size:
         raise ValueError("overlap should be < block_size")
     step = block_size - overlap
 
-    with open(path, encoding="utf-8") as f:
-        buffer = f.read(block_size)
-        i = 0
-        while buffer:
-            yield buffer, i
+    buffer = ""
+    i = 0
+    for piece in iter_text(path):
+        buffer += piece
+        while len(buffer) >= block_size:
+            yield buffer[:block_size], i
             i += 1
+            buffer = buffer[step:]
 
-            new = f.read(step)
-            if not new:
-                break
-            buffer = buffer[step:] + new
+    if buffer and (i == 0 or len(buffer) > overlap):
+        yield buffer, i
 
 
 async def embed_file(
@@ -80,7 +112,11 @@ class FileHash:
 
 
 def diff(path: str):
-    local_files = {p.as_posix() for p in Path(path).rglob("*") if p.is_file()}
+    local_files = {
+        p.as_posix()
+        for p in Path(path).rglob("*")
+        if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
+    }
 
     with Session(engine) as session:
         results = session.exec(select(IngestedFile)).all()
