@@ -26,16 +26,21 @@ def _purge():
         sys.modules.pop(name, None)
     SQLModel.metadata.clear()
 
+DB_MODULE = "config.db.db"
 
 @pytest.fixture()
 def db_module(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    _purge()
-    module = importlib.import_module("config.db.db")
-    yield module
-    module.engine.dispose()
-    _purge()
 
+    saved = sys.modules.pop(DB_MODULE, None)
+    module = importlib.import_module(DB_MODULE)
+    try:
+        yield module
+    finally:
+        module.engine.dispose()
+        sys.modules.pop(DB_MODULE, None)
+        if saved is not None:
+            sys.modules[DB_MODULE] = saved
 
 def test_data_db_file_is_created(db_module, tmp_path):
     assert (tmp_path / "data.db").exists()
