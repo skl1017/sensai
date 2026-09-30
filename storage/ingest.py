@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import uuid
 from dataclasses import dataclass
@@ -131,6 +130,3 @@ async def ingest(path: str):
             chunks, embeddings = await embed_file(p.id, p.file_path, OllamaEmbedder())
             await chunk_store.add_chunks(chunks, embeddings)
 
-
-if __name__ == "__main__":
-    asyncio.run(ingest(".docs"))
