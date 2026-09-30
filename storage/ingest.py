@@ -1,10 +1,66 @@
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from config.db.db import engine
 from config.db.models import IngestedFile
 from sqlmodel import Session, select, delete
-from datetime import datetime, timezone
 import hashlib
+from storage.chunk_store import ChunkStore, ChunkData
+from storage.vector_storage import SqliteVectorStorage
+from core.llm import IEmbedder
+from llm.ollama import OllamaEmbedder
+import uuid
+import asyncio
+from datetime import datetime, timezone
+
+def to_ingested(p) -> IngestedFile:
+    path = Path(p.path)
+    return IngestedFile(
+        file_path=p.path,
+        content_hash=p.hash,
+        file_name=path.name,
+        last_modified=datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    )
+
+def read_blocks(path: str, block_size: int = 500, overlap: int = 50):
+    if overlap >= block_size:
+        raise ValueError("overlap should be < block_size")
+    step = block_size - overlap
+
+    with open(path, "r", encoding="utf-8") as f:
+        buffer = f.read(block_size)
+        i = 0
+        while buffer:
+            yield buffer, i
+            i += 1
+
+            new = f.read(step)
+            if not new:
+                break
+            buffer = buffer[step:] + new
+
+
+async def embed_file(
+    source_id: int, path: str, embedder: IEmbedder
+) -> tuple[list[ChunkData], list[list[float]]]:
+
+    texts: list[str] = []
+    chunk_data: list[ChunkData] = []
+
+    for block, i in read_blocks(path):
+        chunk_data.append(
+            ChunkData(
+                id=str(uuid.uuid4()),
+                source_id=source_id,
+                chunk_index=i,
+                text=block,
+                created_at=datetime.now(timezone.utc).isoformat(),
+                doc_category=None
+            )
+        )
+        texts.append(block)
+    embedded = await embedder.embed(texts)
+    return chunk_data, embedded
+
 
 def file_hash(path: Path, chunk_size: int = 65536) -> str:
     h = hashlib.sha256()
@@ -13,21 +69,14 @@ def file_hash(path: Path, chunk_size: int = 65536) -> str:
             h.update(block)
     return h.hexdigest()
 
-@dataclass
-class ChunkData:
-    id: str
-    text: str
-    source_id: str
-    chunk_index: int
-    doc_category: str | None
-    created_at: str
 
 @dataclass(frozen=True)
 class FileHash:
     path: str
     hash: str
 
-def ingest(path: str):
+
+def diff(path: str):
     local_files = {p.as_posix() for p in Path(path).rglob("*") if p.is_file()}
 
     with Session(engine) as session:
@@ -37,9 +86,12 @@ def ingest(path: str):
     files_to_check = remote_files & local_files
 
     with Session(engine) as session:
-        remote_to_check = {FileHash(p.file_path, p.content_hash) for p in session.exec(
-            select(IngestedFile).where(IngestedFile.file_path.in_(files_to_check))
-        ).all()}
+        remote_to_check = {
+            FileHash(p.file_path, p.content_hash)
+            for p in session.exec(
+                select(IngestedFile).where(IngestedFile.file_path.in_(files_to_check))
+            ).all()
+        }
     local_to_check = {FileHash(p, file_hash(Path(p))) for p in files_to_check}
 
     files_to_replace = remote_to_check ^ local_to_check
@@ -47,19 +99,36 @@ def ingest(path: str):
     added_files = local_files - remote_files
     removed_files = remote_files - local_files
 
-    files_to_remove = removed_files | {p.path for p in files_to_replace}
-    files_to_add = [
-                    IngestedFile(
-                        file_name=p.name,
-                        file_path=p.as_posix(),
-                        last_modified=datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).replace(tzinfo=None),
-                        content_hash=file_hash(p),
-                    )
-                for p in map(Path, added_files | {p.path for p in files_to_replace})]
+    files_to_remove = list(removed_files | {p.path for p in files_to_replace})
+    files_to_add = list({FileHash(p, file_hash(Path(p))) for p in added_files} | files_to_replace)
+    return files_to_remove, files_to_add
 
+
+async def ingest(path: str):
+    files_to_remove, files_to_add = diff(path)
+    vector_store = SqliteVectorStorage(engine)
+    chunk_store = ChunkStore(engine, vector_store)
     with Session(engine) as session:
-        session.exec(
-            delete(IngestedFile).where(IngestedFile.file_path.in_(files_to_remove)))
+
+        to_remove: list[IngestedFile] = session.exec(
+            select(IngestedFile).where(IngestedFile.file_path.in_(files_to_remove))
+        ).all()
+        for p in to_remove:
+            await chunk_store.delete_by_source(p.id)
+        session.exec(delete(IngestedFile).where(IngestedFile.id.in_([p.id for p in to_remove])))
         session.commit()
-        session.add_all(files_to_add)
+
+
+        session.add_all([to_ingested(p) for p in files_to_add])
         session.commit()
+
+        to_add: list[IngestedFile] = session.exec(
+            select(IngestedFile).where(IngestedFile.file_path.in_([p.path for p in files_to_add]))
+        ).all()
+        for p in to_add:
+            chunks, embeddings = await embed_file(p.id, p.file_path, OllamaEmbedder())
+            await chunk_store.add_chunks(chunks, embeddings)
+
+
+if __name__ == "__main__":
+    asyncio.run(ingest(".docs"))
