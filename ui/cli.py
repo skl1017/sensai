@@ -12,7 +12,8 @@ change at runtime via `/resume`/`/new`. `/history` and `/tree` inspect the
 branch tree, `/edit` forks an earlier user message into a sibling branch
 (the original stays intact), and `/goto` moves the head for branch
 navigation. `/profile` edits the static user profile reinjected into every
-turn by `ContextBuilderNode`.
+turn by `ContextBuilderNode`. `/persona <name>` switches the persona
+(`config/personas/<name>.yaml`) for the following turns, history kept (A5).
 
 Ctrl-C while a turn is in flight cancels *that turn* (X2), not the whole
 process: `install_interrupt` wires a `SIGINT` handler to `task.cancel()` for
@@ -62,6 +63,7 @@ Available commands:
   /profile unset <key>           Remove a profile preference.
   /profile instructions <text>   Set the profile's custom instructions.
   /profile clear                 Clear the whole profile.
+  /persona [<name>]              Show or switch the persona for next turns.
 Node ids above accept any unique prefix of the full id.
 """
 
@@ -91,8 +93,25 @@ class CliUI:
         self.out.write(text)
         self.out.flush()
 
-    async def ask(self, question: str, kind: str = "confirm") -> str:
-        """Yes/no prompt on stdin; EOF or anything but yes/y is a refusal."""
+    async def ask(
+        self, question: str, kind: str = "confirm", options: list[str] | None = None
+    ) -> str:
+        """Ask on stdin; see `UserInterface.ask` for the three `kind`s.
+
+        `"confirm"`: EOF or anything but yes/y is a refusal (`"no"`).
+        `"text"`: EOF returns `""`.
+        `"choice"`: prints `options` as a numbered list and re-prompts on an
+        invalid answer; EOF returns `""`.
+        """
+        if kind == "confirm":
+            return await self._ask_confirm(question)
+        if kind == "text":
+            return await self._ask_text(question)
+        if kind == "choice":
+            return await self._ask_choice(question, options or [])
+        raise ValueError(f"unknown ask kind {kind!r}")
+
+    async def _ask_confirm(self, question: str) -> str:
         self.out.write(f"\n{question} [yes/no] ")
         self.out.flush()
         try:
@@ -101,8 +120,35 @@ class CliUI:
             return "no"
         return "yes" if answer.strip().lower() in ("yes", "y") else "no"
 
+    async def _ask_text(self, question: str) -> str:
+        self.out.write(f"\n{question} ")
+        self.out.flush()
+        try:
+            answer = await asyncio.to_thread(input)
+        except EOFError:
+            return ""
+        return answer.strip()
+
+    async def _ask_choice(self, question: str, options: list[str]) -> str:
+        if not options:
+            raise ValueError("kind='choice' requires a non-empty `options` list")
+        self.out.write(f"\n{question}\n")
+        for i, option in enumerate(options, start=1):
+            self.out.write(f"  {i}) {option}\n")
+        while True:
+            self.out.write(f"Choice [1-{len(options)}]: ")
+            self.out.flush()
+            try:
+                answer = await asyncio.to_thread(input)
+            except EOFError:
+                return ""
+            answer = answer.strip()
+            if answer.isdigit() and 1 <= int(answer) <= len(options):
+                return options[int(answer) - 1]
+            self.out.write("Invalid choice, try again.\n")
+
     def on_event(self, kind: str, data: dict) -> None:
-        if kind == "tool_call":
+        if kind == "tool_call" and data["name"] != "ask_user":
             raw = data["args"]
             if isinstance(raw, dict):
                 args = ", ".join(f"{k}={v!r}" for k, v in raw.items())
@@ -112,6 +158,9 @@ class CliUI:
             self.out.flush()
         # "thought" is already streamed via on_token; "observation" and
         # "final" are left out on purpose to keep the CLI output clean.
+        # "ask_user" tool calls are skipped too: `CliUI.ask` (called right
+        # after) already shows the question, so logging the raw call here
+        # would just print it twice.
 
 
 async def _default_read_line(prompt: str) -> str:
@@ -206,6 +255,7 @@ async def _run_turn(
     text: str,
     explicit_parent: str | None,
     install_interrupt: InstallInterrupt,
+    persona: str | None = None,
 ) -> None:
     """Run one turn end to end, streaming to `ui`.
 
@@ -225,7 +275,9 @@ async def _run_turn(
     else:
         parent_id = await asyncio.to_thread(stores.conversation.head, session_id)
 
-    task = asyncio.create_task(chat_turn(agent, stores, session_id, text, parent_id=parent_id))
+    task = asyncio.create_task(
+        chat_turn(agent, stores, session_id, text, persona=persona, parent_id=parent_id)
+    )
     remove_interrupt = install_interrupt(task)
     try:
         await asyncio.wait({task})
@@ -337,6 +389,7 @@ async def _cmd_edit(
     session_id: str,
     arg: str,
     install_interrupt: InstallInterrupt,
+    persona: str | None = None,
 ) -> None:
     parts = arg.split(maxsplit=1)
     if len(parts) != 2:
@@ -357,7 +410,9 @@ async def _cmd_edit(
         return
 
     fork_parent = ROOT if node["parent_id"] is None else node["parent_id"]
-    await _run_turn(agent, ui, stores, session_id, new_text, fork_parent, install_interrupt)
+    await _run_turn(
+        agent, ui, stores, session_id, new_text, fork_parent, install_interrupt, persona
+    )
 
 
 async def _cmd_profile(ui: CliUI, stores: Stores, arg: str) -> None:
@@ -413,6 +468,7 @@ class _Shell:
     stores: Stores
     session_id: str
     install_interrupt: InstallInterrupt
+    persona: str | None = None  # None: the config's root `persona`
     running: bool = True
 
 
@@ -454,12 +510,26 @@ async def _do_goto(shell: _Shell, rest: str) -> None:
 
 async def _do_edit(shell: _Shell, rest: str) -> None:
     await _cmd_edit(
-        shell.agent, shell.ui, shell.stores, shell.session_id, rest, shell.install_interrupt
+        shell.agent,
+        shell.ui,
+        shell.stores,
+        shell.session_id,
+        rest,
+        shell.install_interrupt,
+        shell.persona,
     )
 
 
 async def _do_profile(shell: _Shell, rest: str) -> None:
     await _cmd_profile(shell.ui, shell.stores, rest)
+
+
+async def _do_persona(shell: _Shell, rest: str) -> None:
+    if not rest:
+        shell.ui.out.write(f"Persona: {shell.persona or '(config default)'}\n")
+        return
+    shell.persona = rest.split()[0]
+    shell.ui.out.write(f"Persona set to {shell.persona} for the next turns.\n")
 
 
 COMMANDS: dict[str, CommandHandler] = {
@@ -474,6 +544,7 @@ COMMANDS: dict[str, CommandHandler] = {
     "/goto": _do_goto,
     "/edit": _do_edit,
     "/profile": _do_profile,
+    "/persona": _do_persona,
 }
 
 
@@ -521,7 +592,9 @@ async def run_cli(
                 return
             continue
 
-        await _run_turn(agent, ui, stores, shell.session_id, text, None, install_interrupt)
+        await _run_turn(
+            agent, ui, stores, shell.session_id, text, None, install_interrupt, shell.persona
+        )
 
 
 async def amain(argv: list[str] | None = None) -> None:

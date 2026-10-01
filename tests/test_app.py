@@ -11,7 +11,7 @@ from nodes.context_builder import ContextBuilderNode
 from nodes.persist_node import PersistNode
 from nodes.react_loop import ReActLoopNode
 from storage.stores import InMemoryStores
-from tests.fakes import FakeLLM, FakeTool
+from tests.fakes import FakeEmbedder, FakeLLM, FakeTool
 
 
 class _NoopUI:
@@ -150,8 +150,13 @@ async def test_build_agent_unknown_tool_raises():
 async def test_build_agent_real_config_with_fake_llm():
     # Explicit in-memory stores: the real config's `persist`/`context` entries
     # point at `sessions/`/`data/profile.yaml`, and this test must never write there.
+    # The real config's `context` entry enables the `fewshot` section, which
+    # requires an embedder: `FakeLLM` has none by default, so one is attached
+    # here the same way `Ollama.embedder` would be (`build_agent` falls back
+    # to `getattr(llm, "embedder", None)`).
     ui = _NoopUI()
     llm = FakeLLM(["hi"])
+    llm.embedder = FakeEmbedder()
     agent = await build_agent("config/agent.yaml", ui, llm=llm, stores=InMemoryStores())
 
     assert "calculator" in agent.tools
@@ -159,6 +164,21 @@ async def test_build_agent_real_config_with_fake_llm():
     assert isinstance(agent.pipeline[0], PersistNode)
     assert isinstance(agent.pipeline[1], ContextBuilderNode)
     assert isinstance(agent.pipeline[2], ReActLoopNode)
+
+
+async def test_build_agent_real_config_end_to_end_chat_turn():
+    """One full turn against the real `config/agent.yaml`: persona, profile and
+    fewshot sections, budget pass, react loop -- everything wired, nothing real."""
+    ui = _NoopUI()
+    llm = FakeLLM(["hi there"])
+    llm.embedder = FakeEmbedder()
+    stores = InMemoryStores()
+    agent = await build_agent("config/agent.yaml", ui, llm=llm, stores=stores)
+
+    ctx = await chat_turn(agent, stores, "s1", "hello")
+
+    assert ctx.response == "hi there"
+    assert ctx.state["prompt"]["version"] == "v2"
 
 
 def test_deps_dataclass_fields():
@@ -318,7 +338,6 @@ async def test_chat_turn_state_and_history_threading():
 
     assert node.states[0] == {
         "session_id": "s1",
-        "persona": "default",
         "parent_id": None,
         "artifact": None,
         "summary": None,
