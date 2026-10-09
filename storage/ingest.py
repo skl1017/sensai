@@ -1,5 +1,6 @@
 import hashlib
 import uuid
+import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -13,6 +14,7 @@ from core.llm import IEmbedder
 from llm.ollama import OllamaEmbedder
 from storage.chunk_store import ChunkData, ChunkStore
 from storage.vector_storage import SqliteVectorStorage
+
 
 TEXT_EXTENSIONS = {".txt", ".md"}
 SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | {".pdf", ".docx"}
@@ -167,3 +169,19 @@ async def ingest(
         for p in to_add:
             chunks, embeddings = await embed_file(p.id, p.file_path, OllamaEmbedder())
             await chunk_store.add_chunks(chunks, embeddings)
+
+INTERVAL = 10 * 60
+
+def run_ingest() -> threading.Event:
+    stop_event = threading.Event()
+
+    def loop():
+        while not stop_event.is_set():
+            try:
+                ingest()
+            except Exception:
+                print("ingestion failed")
+            stop_event.wait(INTERVAL)
+
+    threading.Thread(target=loop, name="ingest-loop", daemon=True).start()
+    return stop_event
