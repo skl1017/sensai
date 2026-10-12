@@ -146,7 +146,7 @@ def diff(path: str):
 
 
 async def ingest(
-    path: str = ".docs/",
+    path: str
 ):
     files_to_remove, files_to_add = diff(path)
     vector_store = SqliteVectorStorage(engine)
@@ -170,18 +170,17 @@ async def ingest(
             chunks, embeddings = await embed_file(p.id, p.file_path, OllamaEmbedder())
             await chunk_store.add_chunks(chunks, embeddings)
 
-INTERVAL = 10 * 60
 
-def run_ingest() -> threading.Event:
+def run_ingest(path: str = ".docs/", interval = 10 * 60) -> threading.Event:
     stop_event = threading.Event()
 
     def loop():
         while not stop_event.is_set():
             try:
-                ingest()
+                ingest(path)
             except Exception:
                 print("ingestion failed")
-            stop_event.wait(INTERVAL)
+            stop_event.wait(interval)
 
     threading.Thread(target=loop, name="ingest-loop", daemon=True).start()
     return stop_event
