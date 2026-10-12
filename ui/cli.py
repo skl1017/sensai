@@ -45,6 +45,7 @@ from app import ROOT, build_agent, chat_turn, open_stores
 from core.agent import Agent
 from core.llm import LLMError
 from core.types import Message
+from storage.ingest import run_ingest
 from storage.stores import InMemoryStores, Stores
 
 HELP_TEXT = """\
@@ -611,6 +612,7 @@ async def amain(argv: list[str] | None = None) -> None:
     stores = await open_stores(args.config)
     session_id = args.session or uuid.uuid4().hex
     agent = await build_agent(args.config, ui, stores=stores)
+    ingestion = run_ingest()
 
     print(f"Sensai ({agent.llm.model}) -- session {session_id} -- type /help for commands.")
     try:
@@ -623,6 +625,7 @@ async def amain(argv: list[str] | None = None) -> None:
         embedder_aclose = getattr(embedder, "aclose", None)
         if embedder_aclose is not None:
             await embedder_aclose()
+        ingestion.set()
 
 
 def main(argv: list[str] | None = None) -> None:

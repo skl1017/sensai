@@ -1,4 +1,6 @@
+import asyncio
 import hashlib
+import threading
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -143,9 +145,7 @@ def diff(path: str):
     return files_to_remove, files_to_add
 
 
-async def ingest(
-    path: str = ".docs/",
-):
+async def ingest(path: str):
     files_to_remove, files_to_add = diff(path)
     vector_store = SqliteVectorStorage(engine)
     chunk_store = ChunkStore(engine, vector_store)
@@ -167,3 +167,18 @@ async def ingest(
         for p in to_add:
             chunks, embeddings = await embed_file(p.id, p.file_path, OllamaEmbedder())
             await chunk_store.add_chunks(chunks, embeddings)
+
+
+def run_ingest(path: str = ".docs/", interval=10 * 60) -> threading.Event:
+    stop_event = threading.Event()
+
+    def loop():
+        while not stop_event.is_set():
+            try:
+                asyncio.run(ingest(path))
+            except Exception:
+                print("ingestion failed")
+            stop_event.wait(interval)
+
+    threading.Thread(target=loop, name="ingest-loop", daemon=False).start()
+    return stop_event
