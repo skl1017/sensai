@@ -180,5 +180,5 @@ def run_ingest(path: str = ".docs/", interval=10 * 60) -> threading.Event:
                 print("ingestion failed")
             stop_event.wait(interval)
 
-    threading.Thread(target=loop, name="ingest-loop", daemon=True).start()
+    threading.Thread(target=loop, name="ingest-loop", daemon=False).start()
     return stop_event

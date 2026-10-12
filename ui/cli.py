@@ -625,7 +625,7 @@ async def amain(argv: list[str] | None = None) -> None:
         embedder_aclose = getattr(embedder, "aclose", None)
         if embedder_aclose is not None:
             await embedder_aclose()
-        ingestion.clear()
+        ingestion.set()
 
 
 def main(argv: list[str] | None = None) -> None:
