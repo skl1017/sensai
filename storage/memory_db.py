@@ -75,8 +75,8 @@ class Fact:
     updated_at: str | None = None
 
 
-def _pack(vector: list[float]) -> bytes:
-    return struct.pack(f"{len(vector)}f", *vector)
+def _pack(vector: list[float] | None) -> bytes | None:
+    return struct.pack(f"{len(vector)}f", *vector) if vector else None
 
 
 def _unpack(blob: bytes) -> list[float]:
@@ -96,10 +96,6 @@ def _fts_query(query: str) -> str:
     """Quote every token so FTS5 syntax characters in user input are inert; OR them."""
     tokens = re.findall(r"\w+", query)
     return " OR ".join('"' + t.replace('"', '""') + '"' for t in tokens)
-
-
-def _row_to_fact(row: tuple) -> Fact:
-    return Fact(*row)
 
 
 def _clean(name: str, what: str) -> str:
@@ -155,14 +151,13 @@ class MemoryDB:
             eid = self._upsert_entity(entity, None)
             for key, value in facts.items():
                 key = _clean(key, "fact key")
-                vec = embeddings.get(key)
                 row = self._conn.execute(
                     "INSERT INTO facts(entity_id, key, value, source_session, embedding) "
                     "VALUES (?, ?, ?, ?, ?) "
                     "ON CONFLICT(entity_id, key) DO UPDATE SET value = excluded.value, "
                     "source_session = excluded.source_session, embedding = excluded.embedding, "
                     "updated_at = CURRENT_TIMESTAMP RETURNING id",
-                    (eid, key, value, session, _pack(vec) if vec else None),
+                    (eid, key, value, session, _pack(embeddings.get(key))),
                 ).fetchone()
                 ids.append(row[0])
             for rel, target in relations or []:
@@ -179,7 +174,7 @@ class MemoryDB:
             cur = self._conn.execute(
                 "UPDATE facts SET value = ?, embedding = ?, updated_at = CURRENT_TIMESTAMP "
                 "WHERE id = ?",
-                (value, _pack(embedding) if embedding else None, fact_id),
+                (value, _pack(embedding), fact_id),
             )
         if cur.rowcount == 0:
             raise ValueError(f"Unknown fact id {fact_id}")
@@ -196,15 +191,14 @@ class MemoryDB:
             row = self._conn.execute(_SELECT_FACT + " WHERE f.id = ?", (fact_id,)).fetchone()
         if row is None:
             raise ValueError(f"Unknown fact id {fact_id}")
-        return _row_to_fact(row)
+        return Fact(*row)
 
     def list_facts(self, entity: str | None = None) -> list[Fact]:
-        sql, args = _SELECT_FACT, ()
-        if entity is not None:
-            sql, args = sql + " WHERE e.name = ?", (entity,)
         with self._lock:
-            rows = self._conn.execute(sql + " ORDER BY f.id", args).fetchall()
-        return [_row_to_fact(r) for r in rows]
+            rows = self._conn.execute(
+                _SELECT_FACT + " WHERE (? IS NULL OR e.name = ?) ORDER BY f.id", (entity, entity)
+            ).fetchall()
+        return [Fact(*row) for row in rows]
 
     def relations_of(self, entity: str) -> list[tuple[str, str]]:
         """Outgoing relations of `entity` as `(rel, target_name)`."""
@@ -215,48 +209,48 @@ class MemoryDB:
                 "WHERE s.name = ? ORDER BY r.id",
                 (entity,),
             ).fetchall()
-        return [(rel, dst) for rel, dst in rows]
+        return [tuple(row) for row in rows]
 
     def search(self, query: str, k: int = 10, vector: list[float] | None = None) -> list[Fact]:
         if k <= 0:
             return []
         fts = _fts_query(query)
         with self._lock:
-            fts_rows = []
+            fts_facts = []
             if fts:
-                fts_rows = self._conn.execute(
-                    _SELECT_FACT + " JOIN facts_fts ON facts_fts.rowid = f.id "
-                    "WHERE facts_fts MATCH ? ORDER BY facts_fts.rank LIMIT ?",
-                    (fts, k),
-                ).fetchall()
-            vec_rows = []
+                fts_facts = [
+                    Fact(*row)
+                    for row in self._conn.execute(
+                        _SELECT_FACT + " JOIN facts_fts ON facts_fts.rowid = f.id "
+                        "WHERE facts_fts MATCH ? ORDER BY facts_fts.rank LIMIT ?",
+                        (fts, k),
+                    )
+                ]
+            vec_ids = []
             if vector:
-                scored = []
-                for row in self._conn.execute(
-                    "SELECT f.id, f.embedding FROM facts f WHERE f.embedding IS NOT NULL"
-                ):
-                    scored.append((_cosine(vector, _unpack(row[1])), row[0]))
-                scored.sort(reverse=True)
-                vec_rows = [fid for score, fid in scored[:k] if score > 0]
-        if not vec_rows:
-            return [_row_to_fact(r) for r in fts_rows]
-        # Reciprocal rank fusion of the keyword and vector rankings.
-        scores: dict[int, float] = {}
-        by_id = {r[0]: r for r in fts_rows}
-        for rank, row in enumerate(fts_rows):
-            scores[row[0]] = scores.get(row[0], 0) + 1 / (_RRF_K + rank)
-        for rank, fid in enumerate(vec_rows):
-            scores[fid] = scores.get(fid, 0) + 1 / (_RRF_K + rank)
-        top = sorted(scores, key=lambda i: scores[i], reverse=True)[:k]
-        missing = [i for i in top if i not in by_id]
-        if missing:
-            marks = ",".join("?" * len(missing))
-            with self._lock:
-                rows = self._conn.execute(
-                    _SELECT_FACT + f" WHERE f.id IN ({marks})", missing
-                ).fetchall()
-            by_id.update({r[0]: r for r in rows})
-        return [_row_to_fact(by_id[i]) for i in top]
+                scored = sorted(
+                    (
+                        (_cosine(vector, _unpack(blob)), fid)
+                        for fid, blob in self._conn.execute(
+                            "SELECT id, embedding FROM facts WHERE embedding IS NOT NULL"
+                        )
+                    ),
+                    reverse=True,
+                )
+                vec_ids = [fid for score, fid in scored[:k] if score > 0]
+            by_id = {f.id: f for f in fts_facts}
+            # Reciprocal rank fusion of the keyword and vector rankings.
+            scores: dict[int, float] = {}
+            for ranking in ([f.id for f in fts_facts], vec_ids):
+                for rank, fid in enumerate(ranking):
+                    scores[fid] = scores.get(fid, 0) + 1 / (_RRF_K + rank)
+            top = sorted(scores, key=lambda i: scores[i], reverse=True)[:k]
+            missing = [i for i in top if i not in by_id]
+            if missing:
+                marks = ",".join("?" * len(missing))
+                rows = self._conn.execute(_SELECT_FACT + f" WHERE f.id IN ({marks})", missing)
+                by_id.update({row[0]: Fact(*row) for row in rows})
+        return [by_id[i] for i in top]
 
     # -- async wrappers ------------------------------------------------------
 
