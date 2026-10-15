@@ -14,8 +14,9 @@ Pipeline position 5 (wiki §9.1). Each turn:
    turn; `asyncio.CancelledError` always propagates. Available sections:
    `profile` (`ProfileSection`, static user preferences/instructions),
    `persona` (`PersonaSection`, the active persona's rendered prompt
-   template) and `fewshot` (`FewShotSection`, the closest bank examples).
-   `memory`, `artifact` and `rag` aren't implemented yet (Story 10, 15, 11).
+   template), `memory` (`MemorySection`, recalled long-term facts) and
+   `fewshot` (`FewShotSection`, the closest bank examples).
+   `artifact` and `rag` aren't implemented yet (Story 15, 11).
 3. `ctx.messages` is rebuilt from scratch: `[system?] + history +
    [current user message]` — the caller's own history list is never
    mutated, matching the `Context` invariant that nodes only ever append to
@@ -41,6 +42,7 @@ from core.types import Context, Message
 from nodes.context_budget import apply_budget
 from nodes.context_section import ContextSection
 from nodes.fewshot_section import FewShotSection
+from nodes.memory_section import MemorySection
 from nodes.persona_section import PersonaSection
 from nodes.query_rewriter import rewrite_query
 
@@ -49,12 +51,11 @@ logger = logging.getLogger(__name__)
 # Section names described in the wiki that aren't implemented yet, and the
 # story that will add them.
 _UNAVAILABLE_SECTIONS = {
-    "memory": "Story 10",
     "artifact": "Story 15",
     "rag": "Story 11",
 }
 
-_KNOWN_PARAMS = {"sections", "profile_path", "budget", "rewrite_query", "fewshot"}
+_KNOWN_PARAMS = {"sections", "profile_path", "budget", "rewrite_query", "fewshot", "memory"}
 _BUDGET_KEYS = {"reserve_output", "trigger_ratio", "keep_last_turns"}
 
 
@@ -128,17 +129,18 @@ class ContextBuilderNode(PipelineNode):
     def from_config(cls, params: dict, deps) -> ContextBuilderNode:
         """Build from `agent.yaml` params.
 
-        `{sections, profile_path, budget, rewrite_query, fewshot}` are the
+        `{sections, profile_path, budget, rewrite_query, fewshot, memory}` are the
         only known keys; anything else raises `ValueError`. `profile_path`
         is accepted but ignored here: it is consumed by `app.open_stores`,
         which builds the concrete `ProfileStore`. `fewshot` is the sub-dict
         forwarded to `FewShotSection.from_config` when `fewshot` is among
-        `sections` (default `{}`). `budget`, when present, is validated by
+        `sections` (default `{}`); `memory` likewise for `MemorySection`.
+        `budget`, when present, is validated by
         `_validate_budget`; absent, no compression pass runs. `rewrite_query`
         defaults to `False`.
 
         An unknown section name raises `ValueError`, and so do the
-        not-yet-implemented ones (`memory`, `artifact`, `rag`), each naming
+        not-yet-implemented ones (`artifact`, `rag`), each naming
         the story that will add it.
 
         `deps` is intentionally untyped here (not `Deps`) so this module
@@ -151,7 +153,8 @@ class ContextBuilderNode(PipelineNode):
 
         names = params.get("sections", ["profile"])
         fewshot_params = params.get("fewshot", {})
-        sections = [cls._build_section(name, fewshot_params, deps) for name in names]
+        memory_params = params.get("memory", {})
+        sections = [cls._build_section(name, fewshot_params, memory_params, deps) for name in names]
 
         budget = params.get("budget")
         if budget is not None:
@@ -164,13 +167,17 @@ class ContextBuilderNode(PipelineNode):
         return cls(sections, budget=budget, rewrite_query=rewrite)
 
     @staticmethod
-    def _build_section(name: str, fewshot_params: dict, deps) -> ContextSection:
+    def _build_section(
+        name: str, fewshot_params: dict, memory_params: dict, deps
+    ) -> ContextSection:
         if name == "profile":
             return ProfileSection(deps.stores.profile)
         if name == "persona":
             return PersonaSection.from_deps(deps)
         if name == "fewshot":
             return FewShotSection.from_config(fewshot_params, deps)
+        if name == "memory":
+            return MemorySection.from_config(memory_params, deps)
         if name in _UNAVAILABLE_SECTIONS:
             story = _UNAVAILABLE_SECTIONS[name]
             raise ValueError(f"Context section {name!r} is not available yet ({story})")

@@ -15,7 +15,7 @@ prompt_version: v2
 pipeline:                      # list order = execution order (wiki §9)
   - persist: { dir: sessions/, persist_blocked: false }
   - context:
-      sections: [persona, profile, fewshot]
+      sections: [persona, profile, memory, fewshot]
       budget: { reserve_output: 1024, trigger_ratio: 0.8, keep_last_turns: 4 }
       rewrite_query: false
       fewshot: { k: 3, min_score: 0.5 }   # below 0.5 (nomic-embed-text) examples are off-topic
@@ -24,3 +24,6 @@ pipeline:                      # list order = execution order (wiki §9)
 tools:
   - calculator
   - ask_user
+  - memory: { db: data/memory.db }
+
+approval: [memory_forget]
