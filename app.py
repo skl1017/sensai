@@ -45,6 +45,7 @@ from storage.stores import InMemoryStores, Stores
 from tools.approved_tool import ApprovedTool
 from tools.ask_user_tool import AskUserTool
 from tools.calculator import CalculatorTool
+from tools.memory_tool import from_config as memory_tools_from_config
 
 ROOT = "root"  # sentinel `parent_id`: fork under the session root (no parent)
 
@@ -89,6 +90,7 @@ NODES: dict[str, Callable[[dict, Deps], PipelineNode]] = {
 TOOLS: dict[str, Callable[[dict, Deps], ITool | list[ITool]]] = {
     "calculator": CalculatorTool.from_config,
     "ask_user": AskUserTool.from_config,
+    "memory": memory_tools_from_config,
 }
 
 
