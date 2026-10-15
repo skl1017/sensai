@@ -24,9 +24,11 @@ class InMemoryStores:
     """Concrete `Stores`: conversation and profile default to in-memory-backed
     instances, the rest is `None` until their stories land."""
 
-    def __init__(self, conversation: Any = None, profile: Any = None) -> None:
+    def __init__(
+        self, conversation: Any = None, profile: Any = None, memory_db: Any = None
+    ) -> None:
         self.conversation = conversation if conversation is not None else ConversationStore()
         self.profile = profile if profile is not None else ProfileStore(None)
-        self.memory_db: Any = None
+        self.memory_db: Any = memory_db
         self.vector_store: Any = None
         self.journal: Any = None

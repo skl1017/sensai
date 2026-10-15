@@ -39,6 +39,7 @@ from nodes.context_builder import ContextBuilderNode
 from nodes.persist_node import PersistNode
 from nodes.react_loop import ReActLoopNode
 from storage.conversation import ConversationStore
+from storage.memory_db import MemoryDB
 from storage.profile import ProfileStore
 from storage.stores import InMemoryStores, Stores
 from tools.approved_tool import ApprovedTool
@@ -136,7 +137,16 @@ def _stores_from_config(cfg: AgentConfig) -> InMemoryStores:
     if context_params is not None:
         profile = ProfileStore(context_params.get("profile_path", "data/profile.yaml"))
 
-    return InMemoryStores(conversation=conversation, profile=profile)
+    # `memory` tool entry: `db` param = SQLite path, in-memory by default.
+    memory_db = None
+    memory_params = next((params for name, params in cfg.tools if name == "memory"), None)
+    if memory_params is not None:
+        db_path = str(memory_params.get("db", ":memory:"))
+        if db_path != ":memory:":
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        memory_db = MemoryDB(db_path)
+
+    return InMemoryStores(conversation=conversation, profile=profile, memory_db=memory_db)
 
 
 async def open_stores(cfg_path: str) -> InMemoryStores:
