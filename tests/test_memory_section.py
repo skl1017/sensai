@@ -20,18 +20,28 @@ def _ctx(text: str = "colour", **state) -> Context:
     return Context(user_input=text, messages=[], llm=FakeLLM([]), tools={}, state=state)
 
 
+def _save(db: MemoryDB, entity: str, facts: dict[str, str]) -> None:
+    emb = FakeEmbedder()
+    db.save(entity, facts, embeddings={k: emb.vector(f"{k}: {v}") for k, v in facts.items()})
+
+
 def _db(n: int = 1) -> MemoryDB:
     db = MemoryDB()
-    db.save("Alice", {f"colour{i}": f"colour shade {i}" for i in range(n)})
+    _save(db, "Alice", {f"colour{i}": f"colour shade {i}" for i in range(n)})
     return db
 
 
-def _deps(db=None, embedder=None):
+def _section(db, **kw) -> MemorySection:
+    return MemorySection(db, FakeEmbedder(), **kw)
+
+
+def _deps(db=None, embedder=...):
+    embedder = FakeEmbedder() if embedder is ... else embedder
     return SimpleNamespace(stores=SimpleNamespace(memory_db=db), embedder=embedder)
 
 
 async def test_recalls_facts_and_caps_at_k():
-    section = MemorySection(_db(8), k=3)
+    section = _section(_db(8), k=3)
 
     out = await section.build(_ctx("colour"))
 
@@ -41,37 +51,30 @@ async def test_recalls_facts_and_caps_at_k():
 
 
 async def test_default_k_is_five():
-    out = await MemorySection(_db(8)).build(_ctx("colour"))
+    out = await _section(_db(8)).build(_ctx("colour"))
 
     assert len(out.splitlines()) == 1 + 5
 
 
 async def test_none_when_nothing_matches():
-    assert await MemorySection(_db()).build(_ctx("zebra")) is None
-    assert await MemorySection(MemoryDB()).build(_ctx("colour")) is None
+    assert await _section(_db()).build(_ctx("zebra")) is None  # no shared word
+    assert await _section(MemoryDB()).build(_ctx("colour")) is None
 
 
 async def test_truncates_long_values():
     db = MemoryDB()
-    db.save("Alice", {"bio": "colour " + "x" * 1000})
+    _save(db, "Alice", {"bio": "colour " + "x" * 1000})
 
-    out = await MemorySection(db).build(_ctx("bio"))
+    out = await _section(db).build(_ctx("bio"))
 
     assert out.endswith("...")
     assert len(out.splitlines()[1]) < MAX_VALUE_CHARS + 50
 
 
 async def test_uses_rewritten_query_from_state():
-    out = await MemorySection(_db()).build(_ctx("zebra", query="colour"))
+    out = await _section(_db()).build(_ctx("zebra", query="colour"))
 
     assert out is not None
-
-
-async def test_keyword_only_without_embedder():
-    db = MemoryDB()
-    db.save("Alice", {"colour": "green"})
-    # Different vocabulary: only a vector could match it.
-    assert await MemorySection(db).build(_ctx("verdant")) is None
 
 
 async def test_embedder_is_used_for_the_query():
@@ -81,7 +84,6 @@ async def test_embedder_is_used_for_the_query():
     db.save("Alice", {"colour": "green"}, embeddings={"colour": vec})
     emb.calls.clear()
 
-    # No keyword overlap: only the vector can match.
     out = await MemorySection(db, emb).build(_ctx("verdant"))
 
     assert emb.calls == [["verdant"]]
@@ -91,7 +93,7 @@ async def test_embedder_is_used_for_the_query():
 @pytest.mark.parametrize("k", [0, 11, True, "3"])
 def test_invalid_k_rejected(k):
     with pytest.raises(ValueError, match="k must be"):
-        MemorySection(MemoryDB(), k=k)
+        _section(MemoryDB(), k=k)
 
 
 def test_from_config_params():
@@ -113,6 +115,11 @@ def test_from_config_requires_memory_db(deps):
         MemorySection.from_config({}, deps)
 
 
+def test_from_config_requires_embedder():
+    with pytest.raises(ValueError, match="requires an embedder"):
+        MemorySection.from_config({}, _deps(MemoryDB(), None))
+
+
 def test_context_builder_wires_memory_params():
     node = ContextBuilderNode.from_config(
         {"sections": ["memory"], "memory": {"k": 2}}, _deps(MemoryDB())
@@ -132,7 +139,7 @@ async def test_priority_orders_memory_between_other_sections():
             return self.text
 
     node = ContextBuilderNode(
-        [Fixed(40, "FEWSHOT"), MemorySection(_db()), Fixed(10, "PERSONA")],
+        [Fixed(40, "FEWSHOT"), _section(_db()), Fixed(10, "PERSONA")],
     )
 
     async def last(ctx):
@@ -149,7 +156,7 @@ async def test_failing_search_is_skipped_by_context_builder():
         async def asearch(self, *a, **kw):
             raise RuntimeError("db down")
 
-    node = ContextBuilderNode([MemorySection(Broken())])
+    node = ContextBuilderNode([_section(Broken())])
 
     async def last(ctx):
         return ctx
@@ -168,7 +175,7 @@ async def test_fact_saved_in_one_session_is_recalled_in_the_next():
     save = ToolCall(
         id="1",
         name="memory_save",
-        arguments={"entity": "user", "facts": {"favorite_language": "OCaml"}},
+        arguments={"entity": "user", "facts": {"favorite language": "OCaml"}},
     )
     llm1 = FakeLLM([[save], "Noted."])
     llm1.embedder = embedder
@@ -184,4 +191,4 @@ async def test_fact_saved_in_one_session_is_recalled_in_the_next():
 
     system = llm2.calls[0]["messages"][0]
     assert system.role == "system"
-    assert "user / favorite_language: OCaml" in system.content
+    assert "user / favorite language: OCaml" in system.content

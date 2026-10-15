@@ -175,10 +175,10 @@ class FakeEmbedder(IEmbedder):
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         self.calls.append(list(texts))
-        vectors = []
-        for text in texts:
-            vec = [0.0] * self.dim
-            for word in re.findall(r"\w+", text.lower()):
-                vec[sum(map(ord, word)) % self.dim] += 1.0
-            vectors.append(vec)
-        return vectors
+        return [self.vector(text) for text in texts]
+
+    def vector(self, text: str) -> list[float]:
+        vec = [0.0] * self.dim
+        for word in re.findall(r"\w+", text.lower()):
+            vec[sum(map(ord, word)) % self.dim] += 1.0
+        return vec

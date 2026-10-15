@@ -26,6 +26,7 @@ from tools.memory_tool import (
 
 
 def _tools(embedder=None):
+    embedder = embedder or FakeEmbedder()
     db = MemoryDB()
     deps = SimpleNamespace(stores=InMemoryStores(memory_db=db), embedder=embedder)
     search, save, update, forget = from_config({}, deps)
@@ -36,9 +37,8 @@ def _first_id(text: str) -> int:
     return int(re.search(r"\[(\d+)\]", text).group(1))
 
 
-@pytest.mark.parametrize("embedder", [None, FakeEmbedder()], ids=["fts", "embedder"])
-async def test_full_cycle_save_search_update_forget(embedder):
-    db, search, save, update, forget = _tools(embedder)
+async def test_full_cycle_save_search_update_forget():
+    db, search, save, update, forget = _tools()
     assert await search.run(query="green") == NO_MATCH
 
     out = await save.run(
@@ -67,7 +67,6 @@ async def test_embedder_is_used_for_query_and_facts():
     _, search, save, update, _ = _tools(emb)
     await save.run(entity="Bob", facts={"pet": "a small dog"})
     assert emb.calls == [["pet: a small dog"]]
-    # no shared keyword with the stored fact: only the vector can match
     assert "Bob" in await search.run(query="dog")
     await update.run(id=_first_id(await search.run(query="dog")), value="a cat")
     assert emb.calls[-1] == ["pet: a cat"]
@@ -147,15 +146,21 @@ def test_schemas_and_names():
     assert isinstance(tools[3], MemoryForgetTool)
 
 
+def test_from_config_requires_embedder():
+    deps = SimpleNamespace(stores=InMemoryStores(memory_db=MemoryDB()), embedder=None)
+    with pytest.raises(ValueError, match="embedder"):
+        from_config({}, deps)
+
+
 def test_from_config_requires_memory_db():
     for stores in (None, InMemoryStores()):
-        deps = SimpleNamespace(stores=stores, embedder=None)
+        deps = SimpleNamespace(stores=stores, embedder=FakeEmbedder())
         with pytest.raises(ValueError, match="memory_db"):
             from_config({}, deps)
 
 
 def test_from_config_rejects_unknown_params():
-    deps = SimpleNamespace(stores=InMemoryStores(memory_db=MemoryDB()), embedder=None)
+    deps = SimpleNamespace(stores=InMemoryStores(memory_db=MemoryDB()), embedder=FakeEmbedder())
     with pytest.raises(ValueError, match="bogus"):
         from_config({"bogus": 1}, deps)
 
@@ -182,7 +187,9 @@ async def test_memory_forget_wrapped_by_approval_config(tmp_path):
         "tools:\n  - memory\napproval:\n  - memory_forget\n",
         encoding="utf-8",
     )
-    agent = await build_agent(str(path), _NoopUI(), llm=FakeLLM([]))
+    llm = FakeLLM([])
+    llm.embedder = FakeEmbedder()
+    agent = await build_agent(str(path), _NoopUI(), llm=llm)
     assert isinstance(agent.tools["memory_forget"], ApprovedTool)
     for name in ("memory_search", "memory_save", "memory_update"):
         assert not isinstance(agent.tools[name], ApprovedTool)

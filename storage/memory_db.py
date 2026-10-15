@@ -2,15 +2,13 @@
 
 `MemoryDB` is a sync class (one connection shared across threads behind a lock).
 The `a`-prefixed methods run the sync ones through `asyncio.to_thread`.
-Facts are searched with FTS5 (keyword) and, when a query vector is given, by
-cosine similarity over stored embeddings; both rankings are merged.
+Every fact carries an embedding; facts are searched by cosine similarity.
 """
 
 from __future__ import annotations
 
 import asyncio
 import math
-import re
 import sqlite3
 import struct
 import threading
@@ -30,7 +28,7 @@ CREATE TABLE IF NOT EXISTS facts (
     key TEXT NOT NULL,
     value TEXT NOT NULL,
     source_session TEXT,
-    embedding BLOB,
+    embedding BLOB NOT NULL,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(entity_id, key)
 );
@@ -41,28 +39,12 @@ CREATE TABLE IF NOT EXISTS relations (
     dst_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
     UNIQUE(src_id, rel, dst_id)
 );
-CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
-    key, value, content='facts', content_rowid='id'
-);
-CREATE TRIGGER IF NOT EXISTS facts_ai AFTER INSERT ON facts BEGIN
-    INSERT INTO facts_fts(rowid, key, value) VALUES (new.id, new.key, new.value);
-END;
-CREATE TRIGGER IF NOT EXISTS facts_ad AFTER DELETE ON facts BEGIN
-    INSERT INTO facts_fts(facts_fts, rowid, key, value)
-    VALUES ('delete', old.id, old.key, old.value);
-END;
-CREATE TRIGGER IF NOT EXISTS facts_au AFTER UPDATE ON facts BEGIN
-    INSERT INTO facts_fts(facts_fts, rowid, key, value)
-    VALUES ('delete', old.id, old.key, old.value);
-    INSERT INTO facts_fts(rowid, key, value) VALUES (new.id, new.key, new.value);
-END;
 """
 
 _SELECT_FACT = (
     "SELECT f.id, e.name, f.key, f.value, f.source_session, f.updated_at "
     "FROM facts f JOIN entities e ON e.id = f.entity_id"
 )
-_RRF_K = 60  # reciprocal-rank-fusion constant
 
 
 @dataclass(frozen=True)
@@ -75,8 +57,8 @@ class Fact:
     updated_at: str | None = None
 
 
-def _pack(vector: list[float] | None) -> bytes | None:
-    return struct.pack(f"{len(vector)}f", *vector) if vector else None
+def _pack(vector: list[float]) -> bytes:
+    return struct.pack(f"{len(vector)}f", *vector)
 
 
 def _unpack(blob: bytes) -> list[float]:
@@ -90,12 +72,6 @@ def _cosine(a: list[float], b: list[float]) -> float:
     if na == 0 or nb == 0:
         return 0.0
     return sum(x * y for x, y in zip(a, b, strict=True)) / (na * nb)
-
-
-def _fts_query(query: str) -> str:
-    """Quote every token so FTS5 syntax characters in user input are inert; OR them."""
-    tokens = re.findall(r"\w+", query)
-    return " OR ".join('"' + t.replace('"', '""') + '"' for t in tokens)
 
 
 def _clean(name: str, what: str) -> str:
@@ -143,7 +119,10 @@ class MemoryDB:
         session: str | None = None,
         embeddings: dict[str, list[float]] | None = None,
     ) -> list[int]:
-        """Upsert `entity`, its facts (same key = update) and relations; returns fact ids."""
+        """Upsert `entity`, its facts (same key = update) and relations; returns fact ids.
+
+        `embeddings` maps every fact key to its vector.
+        """
         entity = _clean(entity, "entity name")
         embeddings = embeddings or {}
         ids: list[int] = []
@@ -157,7 +136,7 @@ class MemoryDB:
                     "ON CONFLICT(entity_id, key) DO UPDATE SET value = excluded.value, "
                     "source_session = excluded.source_session, embedding = excluded.embedding, "
                     "updated_at = CURRENT_TIMESTAMP RETURNING id",
-                    (eid, key, value, session, _pack(embeddings.get(key))),
+                    (eid, key, value, session, _pack(embeddings[key])),
                 ).fetchone()
                 ids.append(row[0])
             for rel, target in relations or []:
@@ -169,7 +148,7 @@ class MemoryDB:
                 )
         return ids
 
-    def update_fact(self, fact_id: int, value: str, embedding: list[float] | None = None) -> None:
+    def update_fact(self, fact_id: int, value: str, embedding: list[float]) -> None:
         with self._lock, self._conn:
             cur = self._conn.execute(
                 "UPDATE facts SET value = ?, embedding = ?, updated_at = CURRENT_TIMESTAMP "
@@ -211,45 +190,24 @@ class MemoryDB:
             ).fetchall()
         return [tuple(row) for row in rows]
 
-    def search(self, query: str, k: int = 10, vector: list[float] | None = None) -> list[Fact]:
+    def search(self, vector: list[float], k: int = 10) -> list[Fact]:
+        """The `k` facts closest to `vector` by cosine similarity (score > 0)."""
         if k <= 0:
             return []
-        fts = _fts_query(query)
         with self._lock:
-            fts_facts = []
-            if fts:
-                fts_facts = [
-                    Fact(*row)
-                    for row in self._conn.execute(
-                        _SELECT_FACT + " JOIN facts_fts ON facts_fts.rowid = f.id "
-                        "WHERE facts_fts MATCH ? ORDER BY facts_fts.rank LIMIT ?",
-                        (fts, k),
-                    )
-                ]
-            vec_ids = []
-            if vector:
-                scored = sorted(
-                    (
-                        (_cosine(vector, _unpack(blob)), fid)
-                        for fid, blob in self._conn.execute(
-                            "SELECT id, embedding FROM facts WHERE embedding IS NOT NULL"
-                        )
-                    ),
-                    reverse=True,
-                )
-                vec_ids = [fid for score, fid in scored[:k] if score > 0]
-            by_id = {f.id: f for f in fts_facts}
-            # Reciprocal rank fusion of the keyword and vector rankings.
-            scores: dict[int, float] = {}
-            for ranking in ([f.id for f in fts_facts], vec_ids):
-                for rank, fid in enumerate(ranking):
-                    scores[fid] = scores.get(fid, 0) + 1 / (_RRF_K + rank)
-            top = sorted(scores, key=lambda i: scores[i], reverse=True)[:k]
-            missing = [i for i in top if i not in by_id]
-            if missing:
-                marks = ",".join("?" * len(missing))
-                rows = self._conn.execute(_SELECT_FACT + f" WHERE f.id IN ({marks})", missing)
-                by_id.update({row[0]: Fact(*row) for row in rows})
+            scored = sorted(
+                (
+                    (_cosine(vector, _unpack(blob)), fid)
+                    for fid, blob in self._conn.execute("SELECT id, embedding FROM facts")
+                ),
+                reverse=True,
+            )
+            top = [fid for score, fid in scored[:k] if score > 0]
+            if not top:
+                return []
+            marks = ",".join("?" * len(top))
+            rows = self._conn.execute(_SELECT_FACT + f" WHERE f.id IN ({marks})", top)
+            by_id = {row[0]: Fact(*row) for row in rows}
         return [by_id[i] for i in top]
 
     # -- async wrappers ------------------------------------------------------
@@ -267,14 +225,10 @@ class MemoryDB:
     ) -> list[int]:
         return await asyncio.to_thread(self.save, entity, facts, relations, session, embeddings)
 
-    async def asearch(
-        self, query: str, k: int = 10, vector: list[float] | None = None
-    ) -> list[Fact]:
-        return await asyncio.to_thread(self.search, query, k, vector)
+    async def asearch(self, vector: list[float], k: int = 10) -> list[Fact]:
+        return await asyncio.to_thread(self.search, vector, k)
 
-    async def aupdate_fact(
-        self, fact_id: int, value: str, embedding: list[float] | None = None
-    ) -> None:
+    async def aupdate_fact(self, fact_id: int, value: str, embedding: list[float]) -> None:
         await asyncio.to_thread(self.update_fact, fact_id, value, embedding)
 
     async def aforget(self, fact_id: int) -> bool:

@@ -45,7 +45,7 @@ from typing import TextIO
 
 from app import ROOT, build_agent, chat_turn, open_stores
 from core.agent import Agent
-from core.llm import LLMError
+from core.llm import IEmbedder, LLMError
 from core.types import Message
 from storage.ingest import run_ingest
 from storage.stores import InMemoryStores, Stores
@@ -468,7 +468,7 @@ async def _cmd_profile(ui: CliUI, stores: Stores, arg: str) -> None:
 _MEMORY_USAGE = "Usage: /memory list [<entity>] | /memory edit <id> <value> | /memory delete <id>"
 
 
-async def _cmd_memory(ui: CliUI, stores: Stores, arg: str) -> None:
+async def _cmd_memory(ui: CliUI, stores: Stores, embedder: IEmbedder, arg: str) -> None:
     db = stores.memory_db
     if db is None:
         ui.out.write("Memory is not enabled.\n")
@@ -489,10 +489,10 @@ async def _cmd_memory(ui: CliUI, stores: Stores, arg: str) -> None:
                 ui.out.write(f"{name} --{rel}--> {target}\n")
     elif sub == "edit" and len(parts) == 3 and parts[1].isdecimal():
         fact_id = int(parts[1])
-        # The embedding becomes NULL (no re-embedding here): the fact stays
-        # findable by keyword search, which is acceptable for a manual fix.
         try:
-            await db.aupdate_fact(fact_id, parts[2])
+            fact = await db.aget_fact(fact_id)
+            (vector,) = await embedder.embed([f"{fact.key}: {parts[2]}"])
+            await db.aupdate_fact(fact_id, parts[2], vector)
         except ValueError:
             ui.out.write(f"No fact with id {fact_id}\n")
             return
@@ -573,7 +573,7 @@ async def _do_profile(shell: _Shell, rest: str) -> None:
 
 
 async def _do_memory(shell: _Shell, rest: str) -> None:
-    await _cmd_memory(shell.ui, shell.stores, rest)
+    await _cmd_memory(shell.ui, shell.stores, shell.agent.llm.embedder, rest)
 
 
 async def _do_persona(shell: _Shell, rest: str) -> None:

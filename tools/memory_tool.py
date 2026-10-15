@@ -1,8 +1,7 @@
 """Long-term memory tools over `MemoryDB` (wiki §8.7): search, save, update, forget.
 
-Four small `ITool`s share one `MemoryDB` and an optional `IEmbedder`: with an
-embedder, queries and "key: value" fact texts are embedded for hybrid search;
-without one, search is keyword-only (FTS). `memory_forget` is destructive but
+Four small `ITool`s share one `MemoryDB` and an `IEmbedder`: queries and
+"key: value" fact texts are embedded for similarity search. `memory_forget` is destructive but
 is NOT wrapped here: put it under `approval` in `agent.yaml`.
 """
 
@@ -41,12 +40,9 @@ def _line(fact: Fact) -> str:
 
 
 class _MemoryTool(ITool):
-    def __init__(self, db: MemoryDB, embedder: IEmbedder | None = None) -> None:
+    def __init__(self, db: MemoryDB, embedder: IEmbedder) -> None:
         self.db = db
         self.embedder = embedder
-
-    async def _embed(self, texts: list[str]) -> list[list[float]] | None:
-        return await self.embedder.embed(texts) if self.embedder is not None else None
 
 
 class MemorySearchTool(_MemoryTool):
@@ -65,8 +61,8 @@ class MemorySearchTool(_MemoryTool):
 
     async def run(self, query: str) -> str:
         query = _text(query, "query")
-        vectors = await self._embed([query])
-        facts = await self.db.asearch(query, SEARCH_LIMIT, vectors[0] if vectors else None)
+        (vector,) = await self.embedder.embed([query])
+        facts = await self.db.asearch(vector, SEARCH_LIMIT)
         return "\n".join(_line(f) for f in facts) if facts else NO_MATCH
 
 
@@ -129,8 +125,8 @@ class MemorySaveTool(_MemoryTool):
             pairs.append(
                 (_text(rel.get("rel"), "relation rel"), _text(rel.get("target"), "target"))
             )
-        vectors = await self._embed([f"{k}: {v}" for k, v in clean.items()])
-        embeddings = dict(zip(clean, vectors, strict=True)) if vectors else None
+        vectors = await self.embedder.embed([f"{k}: {v}" for k, v in clean.items()])
+        embeddings = dict(zip(clean, vectors, strict=True))
         if entity_type:
             await self.db.aupsert_entity(entity, _text(entity_type, "entity_type"))
         ids = await self.db.asave(
@@ -158,8 +154,8 @@ class MemoryUpdateTool(_MemoryTool):
     async def run(self, id: int, value: str) -> str:
         fact_id, value = _fact_id(id), _text(value, "value")
         fact = await self.db.aget_fact(fact_id)  # unknown id -> ValueError
-        vectors = await self._embed([f"{fact.key}: {value}"])
-        await self.db.aupdate_fact(fact_id, value, vectors[0] if vectors else None)
+        (vector,) = await self.embedder.embed([f"{fact.key}: {value}"])
+        await self.db.aupdate_fact(fact_id, value, vector)
         return f"Updated fact {fact_id} ({fact.entity} / {fact.key})."
 
 
@@ -194,6 +190,8 @@ def from_config(params: dict, deps: object) -> list[ITool]:
     if db is None:
         raise ValueError("memory tool requires deps.stores.memory_db (none configured)")
     embedder = deps.embedder
+    if embedder is None:
+        raise ValueError("memory tool requires an embedder (llm.embed_model)")
     return [
         cls(db, embedder)
         for cls in (MemorySearchTool, MemorySaveTool, MemoryUpdateTool, MemoryForgetTool)
