@@ -14,6 +14,8 @@ branch tree, `/edit` forks an earlier user message into a sibling branch
 navigation. `/profile` edits the static user profile reinjected into every
 turn by `ContextBuilderNode`. `/persona <name>` switches the persona
 (`config/personas/<name>.yaml`) for the following turns, history kept (A5).
+`/memory list|edit|delete` lets the user audit, correct and purge the long-term
+facts the agent saved (`storage.memory_db`).
 
 Ctrl-C while a turn is in flight cancels *that turn* (X2), not the whole
 process: `install_interrupt` wires a `SIGINT` handler to `task.cancel()` for
@@ -43,7 +45,7 @@ from typing import TextIO
 
 from app import ROOT, build_agent, chat_turn, open_stores
 from core.agent import Agent
-from core.llm import LLMError
+from core.llm import IEmbedder, LLMError
 from core.types import Message
 from storage.ingest import run_ingest
 from storage.stores import InMemoryStores, Stores
@@ -65,6 +67,9 @@ Available commands:
   /profile instructions <text>   Set the profile's custom instructions.
   /profile clear                 Clear the whole profile.
   /persona [<name>]              Show or switch the persona for next turns.
+  /memory list [<entity>]        List remembered facts (and relations).
+  /memory edit <id> <value>      Change the value of a remembered fact.
+  /memory delete <id>            Forget a remembered fact.
 Node ids above accept any unique prefix of the full id.
 """
 
@@ -460,6 +465,48 @@ async def _cmd_profile(ui: CliUI, stores: Stores, arg: str) -> None:
         ui.out.write("Unknown /profile subcommand, type /help\n")
 
 
+_MEMORY_USAGE = "Usage: /memory list [<entity>] | /memory edit <id> <value> | /memory delete <id>"
+
+
+async def _cmd_memory(ui: CliUI, stores: Stores, embedder: IEmbedder, arg: str) -> None:
+    db = stores.memory_db
+    if db is None:
+        ui.out.write("Memory is not enabled.\n")
+        return
+    parts = arg.split(maxsplit=2)
+    sub = parts[0] if parts else ""
+
+    if sub == "list" and len(parts) <= 2:
+        entity = parts[1] if len(parts) == 2 else None
+        facts = await db.alist_facts(entity)
+        if not facts:
+            ui.out.write("Memory is empty.\n")
+            return
+        for fact in facts:
+            ui.out.write(f"[{fact.id}] {fact.entity} / {fact.key}: {fact.value}\n")
+        for name in dict.fromkeys(f.entity for f in facts):
+            for rel, target in await db.arelations_of(name):
+                ui.out.write(f"{name} --{rel}--> {target}\n")
+    elif sub == "edit" and len(parts) == 3 and parts[1].isdecimal():
+        fact_id = int(parts[1])
+        try:
+            fact = await db.aget_fact(fact_id)
+            (vector,) = await embedder.embed([f"{fact.key}: {parts[2]}"])
+            await db.aupdate_fact(fact_id, parts[2], vector)
+        except ValueError:
+            ui.out.write(f"No fact with id {fact_id}\n")
+            return
+        ui.out.write(f"Updated fact {fact_id}\n")
+    elif sub == "delete" and len(parts) == 2 and parts[1].isdecimal():
+        fact_id = int(parts[1])
+        if await db.aforget(fact_id):
+            ui.out.write(f"Deleted fact {fact_id}\n")
+        else:
+            ui.out.write(f"No fact with id {fact_id}\n")
+    else:
+        ui.out.write(_MEMORY_USAGE + "\n")
+
+
 @dataclass
 class _Shell:
     """What a slash-command handler may read or change."""
@@ -525,6 +572,10 @@ async def _do_profile(shell: _Shell, rest: str) -> None:
     await _cmd_profile(shell.ui, shell.stores, rest)
 
 
+async def _do_memory(shell: _Shell, rest: str) -> None:
+    await _cmd_memory(shell.ui, shell.stores, shell.agent.llm.embedder, rest)
+
+
 async def _do_persona(shell: _Shell, rest: str) -> None:
     if not rest:
         shell.ui.out.write(f"Persona: {shell.persona or '(config default)'}\n")
@@ -546,6 +597,7 @@ COMMANDS: dict[str, CommandHandler] = {
     "/edit": _do_edit,
     "/profile": _do_profile,
     "/persona": _do_persona,
+    "/memory": _do_memory,
 }
 
 

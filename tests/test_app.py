@@ -10,6 +10,7 @@ from llm.ollama import Ollama, OllamaEmbedder
 from nodes.context_builder import ContextBuilderNode
 from nodes.persist_node import PersistNode
 from nodes.react_loop import ReActLoopNode
+from storage.memory_db import MemoryDB
 from storage.stores import InMemoryStores
 from tests.fakes import FakeEmbedder, FakeLLM, FakeTool
 
@@ -157,7 +158,8 @@ async def test_build_agent_real_config_with_fake_llm():
     ui = _NoopUI()
     llm = FakeLLM(["hi"])
     llm.embedder = FakeEmbedder()
-    agent = await build_agent("config/agent.yaml", ui, llm=llm, stores=InMemoryStores())
+    stores = InMemoryStores(memory_db=MemoryDB())
+    agent = await build_agent("config/agent.yaml", ui, llm=llm, stores=stores)
 
     assert "calculator" in agent.tools
     assert len(agent.pipeline) == 3
@@ -172,7 +174,7 @@ async def test_build_agent_real_config_end_to_end_chat_turn():
     ui = _NoopUI()
     llm = FakeLLM(["hi there"])
     llm.embedder = FakeEmbedder()
-    stores = InMemoryStores()
+    stores = InMemoryStores(memory_db=MemoryDB())
     agent = await build_agent("config/agent.yaml", ui, llm=llm, stores=stores)
 
     ctx = await chat_turn(agent, stores, "s1", "hello")
