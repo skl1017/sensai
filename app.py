@@ -8,11 +8,12 @@ a concrete `ILLM` backend into the abstract pipeline.
 `Deps` is the single object carrying shared dependencies into the `from_config`
 factories (no globals, per `CLAUDE.md`). `stores` default to on-disk-backed
 `InMemoryStores` built by `open_stores`/`_stores_from_config` from the
-`persist`/`context` pipeline entries (X2, #23-#25); the `mcp_servers` wiring
-comes with its own story. `chat_turn` is the CLI/Web/scheduler shared entry
-point: it loads history/artifact/summary and runs the agent, but no longer
-appends the exchange itself — `PersistNode`, sitting in the configured
-pipeline, owns that write.
+`persist`/`context` pipeline entries (X2, #23-#25). `mcp_servers` are
+connected by `build_agent` (their tools join the others; the `AsyncExitStack`
+owning the connections is handed to the `Agent`, whose `aclose()` releases it).
+`chat_turn` is the CLI/Web/scheduler shared entry point: it loads
+history/artifact/summary and runs the agent, but no longer appends the exchange
+itself — `PersistNode`, sitting in the configured pipeline, owns that write.
 
 Adding a feature is meant to stay a one-line change: register a new node or
 tool factory in `NODES`/`TOOLS`, then add one line to `config/agent.yaml` —
@@ -24,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 from collections.abc import Callable, Iterable
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -44,6 +46,7 @@ from storage.stores import InMemoryStores, Stores
 from tools.approved_tool import ApprovedTool
 from tools.ask_user_tool import AskUserTool
 from tools.calculator import CalculatorTool
+from tools.mcp_adapter import MCPToolAdapter, connect_servers
 
 ROOT = "root"  # sentinel `parent_id`: fork under the session root (no parent)
 
@@ -107,11 +110,16 @@ def build_llm(llm_cfg: dict) -> Ollama:
 
 
 def needs_approval(tool: ITool, cfg: AgentConfig) -> bool:
-    """True if `tool.name` matches a pattern of the config's `approval` section (fnmatch).
+    """True if `tool` must go through `ApprovedTool`.
 
-    Wiki §8.9 also requires approval for MCP tools absent from `read_only`;
-    that rule arrives with the MCP story, once MCP tools exist.
+    An `MCPToolAdapter` needs approval unless its `remote_name` is in the
+    `read_only` list of its server's `mcp_servers` entry (wiki §8.9; deny by
+    default, including for an unknown server). Any other tool needs it when
+    its name matches a pattern of the config's `approval` section (fnmatch).
     """
+    if isinstance(tool, MCPToolAdapter):
+        server = next((s for s in cfg.mcp_servers if s.name == tool.server), None)
+        return server is None or tool.remote_name not in server.read_only
     return any(fnmatch.fnmatchcase(tool.name, pattern) for pattern in cfg.approval)
 
 
@@ -161,8 +169,11 @@ async def build_agent(
     `FakeLLM` this way and never touch the network/`Ollama`). `stores`
     defaults to `_stores_from_config(cfg)` (built from the already-parsed
     config, so it isn't loaded twice just to get here). Tools matching
-    `approval` are wrapped in `ApprovedTool`. `mcp_servers` are validated by
-    the loader but not connected yet (MCP story).
+    `approval` are wrapped in `ApprovedTool`. `mcp_servers` are connected here
+    and their tools added (wrapped unless `read_only`, see `needs_approval`);
+    the connections live in an `AsyncExitStack` owned by the returned agent,
+    so callers must `await agent.aclose()` when done. If assembly fails, the
+    stack is closed before the error propagates.
     """
     cfg = await asyncio.to_thread(load_config, cfg_path)
     resolved_llm = llm if llm is not None else build_llm(cfg.llm.as_dict())
@@ -177,22 +188,28 @@ async def build_agent(
         prompt_version=cfg.prompt_version,
     )
 
-    built: list[ITool | list[ITool]] = []
-    for name, params in cfg.tools:
-        factory = TOOLS.get(name)
-        if factory is None:
-            raise ValueError(f"Unknown tool {name!r}. Available: {', '.join(sorted(TOOLS))}")
-        built.append(factory(params, deps))
-    tools = [ApprovedTool(t, ui) if needs_approval(t, cfg) else t for t in flatten(built)]
+    stack = AsyncExitStack()
+    try:
+        built: list[ITool | list[ITool]] = []
+        for name, params in cfg.tools:
+            factory = TOOLS.get(name)
+            if factory is None:
+                raise ValueError(f"Unknown tool {name!r}. Available: {', '.join(sorted(TOOLS))}")
+            built.append(factory(params, deps))
+        all_tools = flatten(built) + await connect_servers(cfg.mcp_servers, stack)
+        tools = [ApprovedTool(t, ui) if needs_approval(t, cfg) else t for t in all_tools]
 
-    pipeline: list[PipelineNode] = []
-    for name, params in cfg.pipeline:
-        factory = NODES.get(name)
-        if factory is None:
-            raise ValueError(f"Unknown node {name!r}. Available: {', '.join(sorted(NODES))}")
-        pipeline.append(factory(params, deps))
+        pipeline: list[PipelineNode] = []
+        for name, params in cfg.pipeline:
+            factory = NODES.get(name)
+            if factory is None:
+                raise ValueError(f"Unknown node {name!r}. Available: {', '.join(sorted(NODES))}")
+            pipeline.append(factory(params, deps))
 
-    return Agent(resolved_llm, tools, pipeline)
+        return Agent(resolved_llm, tools, pipeline, stack)
+    except BaseException:
+        await stack.aclose()
+        raise
 
 
 async def chat_turn(
