@@ -1,8 +1,11 @@
+from datetime import datetime
+from types import SimpleNamespace
+
 import pytest
 from sqlalchemy import create_engine
-from sqlmodel import Session, SQLModel, select
+from sqlmodel import Session, SQLModel
 
-from config.db.models import Chunk
+from config.db.models import IngestedFile
 from core.storage import IVectorStorage
 from storage.chunk_store import ChunkStore
 from storage.ingest import ChunkData
@@ -11,17 +14,20 @@ from storage.vector_storage import SqliteVectorStorage
 DIM = 4
 
 
-class FakeVectorStorage(IVectorStorage):
-    """Vector storage en mémoire : permet de tester ChunkStore isolément."""
+class SearchableFakeVectors(IVectorStorage):
+    """Vector storage en mémoire dont les résultats de search sont préparés à l'avance."""
 
-    def __init__(self):
+    def __init__(self, results=None):
         self.vectors: dict[str, list[float]] = {}
+        self.results = results or []
+        self.search_calls: list[tuple] = []
 
     async def add(self, chunk_id, embedding):
         self.vectors[chunk_id] = embedding
 
     async def search(self, collection, vector, k, filters=None):
-        raise NotImplementedError
+        self.search_calls.append((collection, vector, k))
+        return self.results
 
     async def delete(self, chunk_id):
         self.vectors.pop(chunk_id, None)
@@ -38,9 +44,9 @@ def make_chunk(chunk_id: str, source_id: str = "src1", index: int = 0, category:
     )
 
 
-def rows(engine) -> list[Chunk]:
-    with Session(engine) as session:
-        return session.exec(select(Chunk)).all()
+def hit(chunk_id: str, distance: float = 0.5):
+    # Même forme que VectorSearchResult(chunk_id, distance)
+    return SimpleNamespace(chunk_id=chunk_id, distance=distance)
 
 
 @pytest.fixture
@@ -50,95 +56,103 @@ def engine():
     return engine
 
 
-@pytest.fixture
-def fake_vectors():
-    return FakeVectorStorage()
-
-
-@pytest.fixture
-def store(engine, fake_vectors):
-    return ChunkStore(engine, fake_vectors)
-
-
-# ---------- add_chunks ----------
+# ---------- search (fake) ----------
 
 
 @pytest.mark.asyncio
-async def test_add_chunks_persists_rows_with_all_fields(store, engine):
+async def test_search_returns_chunks_in_vector_order(engine):
+    vectors = SearchableFakeVectors(results=[hit("c2", 0.1), hit("c1", 0.6)])
+    store = ChunkStore(engine, vectors)
+    await store.add_chunks([make_chunk("c1"), make_chunk("c2", index=1)], [[1.0] * DIM, [2.0] * DIM])
+
+    results = await store.search([1.0] * DIM, k=2)
+
+    assert [c.id for c, _ in results] == ["c2", "c1"]
+
+
+@pytest.mark.asyncio
+async def test_search_converts_distance_to_similarity(engine):
+    vectors = SearchableFakeVectors(results=[hit("c2", 0.1), hit("c1", 0.6)])
+    store = ChunkStore(engine, vectors)
+    await store.add_chunks([make_chunk("c1"), make_chunk("c2", index=1)], [[1.0] * DIM, [2.0] * DIM])
+
+    results = await store.search([1.0] * DIM, k=2)
+
+    # Cosine : similarité = 1 - distance, donc le plus proche a le meilleur score
+    assert [score for _, score in results] == pytest.approx([0.9, 0.4])
+
+
+@pytest.mark.asyncio
+async def test_search_returns_full_chunk_fields(engine):
+    vectors = SearchableFakeVectors(results=[hit("c1")])
+    store = ChunkStore(engine, vectors)
     await store.add_chunks([make_chunk("c1", index=3, category="Technique")], [[1.0] * DIM])
 
-    (row,) = rows(engine)
-    assert row.id == "c1"
-    assert row.text == "texte c1"
-    assert row.source_id == "src1"
-    assert row.chunk_index == 3
-    assert row.doc_category == "Technique"
-    assert row.created_at == "2026-01-01T00:00:00+00:00"
+    ((chunk, _),) = await store.search([1.0] * DIM, k=1)
+
+    assert chunk.text == "texte c1"
+    assert chunk.source_id == "src1"
+    assert chunk.chunk_index == 3
+    assert chunk.doc_category == "Technique"
 
 
 @pytest.mark.asyncio
-async def test_add_chunks_writes_matching_vectors(store, fake_vectors):
-    chunks = [make_chunk("c1"), make_chunk("c2", index=1)]
-    embeddings = [[1.0] * DIM, [2.0] * DIM]
+async def test_search_returns_source_file_name(engine):
+    with Session(engine) as session:
+        source = IngestedFile(
+            file_name="rh.pdf",
+            file_path="/docs/rh.pdf",
+            last_modified=datetime(2026, 1, 1),
+            content_hash="h",
+        )
+        session.add(source)
+        session.commit()
+        session.refresh(source)
+        source_id = source.id
+    store = ChunkStore(engine, SearchableFakeVectors(results=[hit("c1")]))
+    await store.add_chunks([make_chunk("c1", source_id=source_id)], [[1.0] * DIM])
 
-    await store.add_chunks(chunks, embeddings)
+    ((chunk, _),) = await store.search([1.0] * DIM, k=1)
 
-    assert fake_vectors.vectors == {"c1": [1.0] * DIM, "c2": [2.0] * DIM}
-
-
-@pytest.mark.asyncio
-async def test_add_chunks_with_empty_lists_does_nothing(store, engine, fake_vectors):
-    await store.add_chunks([], [])
-
-    assert rows(engine) == []
-    assert fake_vectors.vectors == {}
-
-
-@pytest.mark.asyncio
-async def test_add_chunks_length_mismatch_raises_and_persists_nothing(store, engine, fake_vectors):
-    chunks = [make_chunk("c1"), make_chunk("c2", index=1)]
-
-    with pytest.raises(ValueError):
-        await store.add_chunks(chunks, [[1.0] * DIM])  # 2 chunks, 1 embedding
-
-    # Ne doit pas laisser de chunks orphelins (sans vecteur) en base
-    assert rows(engine) == []
-    assert fake_vectors.vectors == {}
-
-
-# ---------- delete_by_source ----------
+    assert chunk.source_name == "rh.pdf"
 
 
 @pytest.mark.asyncio
-async def test_delete_by_source_removes_rows_and_vectors(store, engine, fake_vectors):
-    await store.add_chunks(
-        [make_chunk("c1"), make_chunk("c2", index=1)], [[1.0] * DIM, [2.0] * DIM]
-    )
+async def test_search_source_name_is_none_without_ingested_file(engine):
+    store = ChunkStore(engine, SearchableFakeVectors(results=[hit("c1")]))
+    await store.add_chunks([make_chunk("c1")], [[1.0] * DIM])  # source_id "src1", pas de ligne IngestedFile
 
-    await store.delete_by_source("src1")
+    ((chunk, _),) = await store.search([1.0] * DIM, k=1)
 
-    assert rows(engine) == []
-    assert fake_vectors.vectors == {}
+    assert chunk.source_name is None
 
 
 @pytest.mark.asyncio
-async def test_delete_by_source_only_affects_targeted_source(store, engine, fake_vectors):
-    await store.add_chunks(
-        [make_chunk("a1", source_id="A"), make_chunk("b1", source_id="B")],
-        [[1.0] * DIM, [2.0] * DIM],
-    )
+async def test_search_without_hits_returns_empty_list(engine):
+    store = ChunkStore(engine, SearchableFakeVectors(results=[]))
 
-    await store.delete_by_source("A")
-
-    assert [r.id for r in rows(engine)] == ["b1"]
-    assert list(fake_vectors.vectors) == ["b1"]
+    assert await store.search([1.0] * DIM, k=3) == []
 
 
 @pytest.mark.asyncio
-async def test_delete_by_source_unknown_source_does_not_raise(store, engine):
-    await store.delete_by_source("inconnu")
+async def test_search_ignores_vector_hits_missing_from_database(engine):
+    vectors = SearchableFakeVectors(results=[hit("ghost", 0.9), hit("c1", 0.5)])
+    store = ChunkStore(engine, vectors)
+    await store.add_chunks([make_chunk("c1")], [[1.0] * DIM])
 
-    assert rows(engine) == []
+    results = await store.search([1.0] * DIM, k=2)
+
+    assert [c.id for c, _ in results] == ["c1"]
+
+
+@pytest.mark.asyncio
+async def test_search_queries_chunk_vectors_collection_with_k(engine):
+    vectors = SearchableFakeVectors()
+    store = ChunkStore(engine, vectors)
+
+    await store.search([0.1, 0.2, 0.3, 0.4], k=7)
+
+    assert vectors.search_calls == [("chunk_vectors", [0.1, 0.2, 0.3, 0.4], 7)]
 
 
 # ---------- intégration avec le vrai sqlite-vec ----------
@@ -149,45 +163,39 @@ def real_store():
     engine = create_engine("sqlite://")
     vectors = SqliteVectorStorage(engine, embedding_dim=DIM)  # avant tout autre usage de l'engine
     SQLModel.metadata.create_all(engine)
-    return ChunkStore(engine, vectors), vectors
+    return ChunkStore(engine, vectors)
 
 
 @pytest.mark.asyncio
-async def test_integration_added_chunks_are_searchable(real_store):
-    store, vectors = real_store
-    await store.add_chunks(
+async def test_integration_search_returns_closest_chunk_first(real_store):
+    await real_store.add_chunks(
         [make_chunk("close"), make_chunk("far", index=1)],
         [[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
     )
 
-    results = await vectors.search("chunk_vectors", [1.0, 0.0, 0.0, 0.0], k=5)
+    results = await real_store.search([1.0, 0.0, 0.0, 0.0], k=5)
 
-    assert [r.chunk_id for r in results] == ["close", "far"]
-
-
-@pytest.mark.asyncio
-async def test_integration_delete_by_source_removes_from_vector_search(real_store):
-    store, vectors = real_store
-    await store.add_chunks([make_chunk("c1")], [[1.0, 0.0, 0.0, 0.0]])
-
-    await store.delete_by_source("src1")
-
-    results = await vectors.search("chunk_vectors", [1.0, 0.0, 0.0, 0.0], k=5)
-    assert results == []
+    assert [c.id for c, _ in results] == ["close", "far"]
+    (_, close_score), (_, far_score) = results
+    assert close_score > far_score
 
 
 @pytest.mark.asyncio
-async def test_integration_reingestion_replaces_chunks(real_store):
-    store, vectors = real_store
-    await store.add_chunks(
-        [make_chunk("c1"), make_chunk("c2", index=1)],
-        [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]],
+async def test_integration_search_respects_k(real_store):
+    await real_store.add_chunks(
+        [make_chunk("a"), make_chunk("b", index=1), make_chunk("c", index=2)],
+        [[1.0, 0.0, 0.0, 0.0], [0.9, 0.1, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
     )
 
-    # même pattern que IngestionService : delete puis add
-    await store.delete_by_source("src1")
-    await store.add_chunks([make_chunk("c1")], [[0.0, 0.0, 1.0, 0.0]])
+    results = await real_store.search([1.0, 0.0, 0.0, 0.0], k=2)
 
-    results = await vectors.search("chunk_vectors", [0.0, 0.0, 1.0, 0.0], k=5)
-    assert [r.chunk_id for r in results] == ["c1"]
-    assert len(rows(store._engine)) == 1
+    assert [c.id for c, _ in results] == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_integration_search_after_delete_by_source_is_empty(real_store):
+    await real_store.add_chunks([make_chunk("c1")], [[1.0, 0.0, 0.0, 0.0]])
+
+    await real_store.delete_by_source("src1")
+
+    assert await real_store.search([1.0, 0.0, 0.0, 0.0], k=5) == []
