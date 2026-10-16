@@ -67,3 +67,24 @@ def test_unknown_top_level_key(tmp_path):
 def test_mcp_server_requires_command(tmp_path):
     with pytest.raises(ConfigError, match=r"mcp_servers\[0\]\.command: required"):
         _load(tmp_path, "llm: {model: m}\nmcp_servers:\n  - name: fs\n")
+
+
+def test_mcp_server_env(tmp_path):
+    cfg = _load(
+        tmp_path,
+        "llm: {model: m}\nmcp_servers:\n  - name: fs\n    command: npx\n    env: {TOKEN: abc}\n",
+    )
+    assert cfg.mcp_servers[0].env == {"TOKEN": "abc"}
+
+
+def test_mcp_server_env_defaults_empty(tmp_path):
+    cfg = _load(tmp_path, "llm: {model: m}\nmcp_servers:\n  - name: fs\n    command: npx\n")
+    assert cfg.mcp_servers[0].env == {}
+
+
+def test_mcp_server_env_must_be_string_mapping(tmp_path):
+    with pytest.raises(ConfigError, match=r"mcp_servers\[0\]\.env: expected a mapping of strings"):
+        _load(
+            tmp_path,
+            "llm: {model: m}\nmcp_servers:\n  - name: fs\n    command: npx\n    env: {A: 1}\n",
+        )

@@ -10,3 +10,4 @@ data/
 *.egg-info/
 !.env.example
 .docs/
+node_modules/
