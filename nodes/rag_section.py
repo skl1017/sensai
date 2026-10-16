@@ -37,12 +37,9 @@ class RAGSection(ContextSection):
         query_vector = (await self.embedder.embed([query]))[0]
 
         hits = await self.chunk_store.search(query_vector, self.k)
-        for _, score in hits:
-            print(score)
         hits = [(chunk, score) for chunk, score in hits if score >= self.min_score]
         if not hits:
             return None
-        print(hits)
 
         ctx.state["retrieved_chunks"] = [
             {
