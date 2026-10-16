@@ -14,7 +14,7 @@ import pytest
 
 from core.types import Context, Message
 from nodes.persist_node import PersistNode
-from tests.fakes import FakeLLM
+from tests.fakes import FakeLLM, FakeTool
 
 
 class FakeConversationStore:
@@ -174,6 +174,52 @@ async def test_tool_and_system_messages_are_not_persisted():
     messages = store.calls[0]["messages"]
     assert [m.role for m in messages] == ["user", "assistant"]
     assert messages == [Message("user", "hello"), Message("assistant", "the answer is 3")]
+
+
+class _PersistingTool(FakeTool):
+    persist_exchange = True
+
+
+def _trace_entry(action: str, args: dict, observation: str) -> dict:
+    return {"step": 1, "thought": "", "action": action, "args": args, "observation": observation}
+
+
+async def test_persist_exchange_tool_answer_is_kept_in_assistant_message():
+    async def react_like(ctx: Context) -> Context:
+        ctx.state["react_trace"] = [
+            _trace_entry("ask_user", {"question": "What is your name?"}, "Bob"),
+            _trace_entry("calculator", {"expression": "1+2"}, "3"),
+        ]
+        ctx.response = "Nice to meet you, Bob!"
+        return ctx
+
+    store = FakeConversationStore()
+    ctx = make_ctx(session_id="s1")
+    ctx.tools = {"ask_user": _PersistingTool("ask_user"), "calculator": FakeTool("calculator")}
+
+    await PersistNode(store).handle(ctx, react_like)
+
+    assert store.calls[0]["messages"][1] == Message(
+        "assistant", "[Asked the user: What is your name? -> Bob]\nNice to meet you, Bob!"
+    )
+
+
+async def test_persist_exchange_skips_errors_and_unknown_tools():
+    async def react_like(ctx: Context) -> Context:
+        ctx.state["react_trace"] = [
+            _trace_entry("ask_user", {"question": "Q?"}, "Error: ValueError: nope"),
+            _trace_entry("gone", {"question": "Q?"}, "x"),
+        ]
+        ctx.response = "answer"
+        return ctx
+
+    store = FakeConversationStore()
+    ctx = make_ctx(session_id="s1")
+    ctx.tools = {"ask_user": _PersistingTool("ask_user")}
+
+    await PersistNode(store).handle(ctx, react_like)
+
+    assert store.calls[0]["messages"][1] == Message("assistant", "answer")
 
 
 async def test_artifact_and_summary_are_passed_through():

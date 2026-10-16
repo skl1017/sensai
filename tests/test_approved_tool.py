@@ -21,7 +21,8 @@ async def test_yes_runs_inner_tool_with_plan_shown():
     result = await ApprovedTool(inner, ui).run(path="a.txt")
     assert result == "written"
     assert inner.calls == [{"path": "a.txt"}]
-    question, kind = ui.questions[0]
+    question, kind, options = ui.questions[0]
+    assert options is None
     assert kind == "confirm"
     assert "write_file" in question and '"path": "a.txt"' in question
 

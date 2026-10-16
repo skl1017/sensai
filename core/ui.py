@@ -14,8 +14,16 @@ two plain callables, not the full `UserInterface`, so it stays decoupled from
 concrete UIs.
 
 `ask` is the human-in-the-loop entry point used by `ApprovedTool` (`kind="confirm"`,
-answer `"yes"` or `"no"`) and, later, `AskUserTool` (other kinds). A UI with no
-user behind it must answer `"no"`: deny by default.
+answer `"yes"` or `"no"`) and `AskUserTool` (`kind="text"`/`"choice"`, X4). A UI
+with no user behind it must answer `"no"` for `kind="confirm"`: deny by default.
+
+Kinds
+-----
+- `"confirm"`: yes/no question; the caller only ever treats `"yes"` as an
+  approval, anything else (including no answer at all) is a refusal.
+- `"text"`: free-form question; the answer is whatever the user typed.
+- `"choice"`: `options` lists the possible answers; the answer is one of
+  them, verbatim.
 
 Event kinds
 -----------
@@ -46,6 +54,12 @@ class UserInterface(Protocol):
         """Called with a structured event (see module docstring for kinds)."""
         ...
 
-    async def ask(self, question: str, kind: str = "confirm") -> str:
-        """Ask the user; for `kind="confirm"` return `"yes"` or `"no"` (anything else = refusal)."""
+    async def ask(
+        self, question: str, kind: str = "confirm", options: list[str] | None = None
+    ) -> str:
+        """Ask the user a `question` of the given `kind` (see module docstring).
+
+        `options` is required for `kind="choice"` and ignored otherwise. For
+        `kind="confirm"`, return `"yes"` or `"no"` (anything else = refusal).
+        """
         ...

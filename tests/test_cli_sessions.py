@@ -412,3 +412,33 @@ tools:
         return await build_agent(
             str(cfg_path), CliUI(io.StringIO()), llm=llm or FakeLLM(["ok"] * 10), stores=stores
         )
+
+
+# --- /persona ---------------------------------------------------------------------
+
+
+async def test_persona_command_switches_persona_and_keeps_history():
+    from core.agent import Agent
+    from core.node import PipelineNode
+
+    class Recorder(PipelineNode):
+        def __init__(self):
+            self.seen: list[tuple[str | None, list[str]]] = []
+
+        async def handle(self, ctx, next):
+            self.seen.append((ctx.state.get("persona"), [m.content for m in ctx.messages]))
+            ctx.response = f"re: {ctx.user_input}"
+            return ctx
+
+    out = io.StringIO()
+    ui = CliUI(out)
+    stores = InMemoryStores()
+    recorder = Recorder()
+    agent = Agent(FakeLLM([]), [], [PersistNode(stores.conversation), recorder])
+
+    lines = ["one", "/persona tutor", "/persona", "two", "/quit"]
+    await run_cli(agent, ui, scripted_read_line(lines), stores, "s")
+
+    assert recorder.seen[0][0] is None
+    assert recorder.seen[1] == ("tutor", ["one", "re: one"])
+    assert "Persona: tutor" in out.getvalue()

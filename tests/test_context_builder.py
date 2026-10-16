@@ -1,4 +1,4 @@
-"""Unit tests for the minimal `ContextBuilderNode`/`ProfileSection` (#25).
+"""Unit tests for `ContextBuilderNode` (#25, Story 6).
 
 `FakeProfileStore` mirrors `ProfileStore.load()`'s shape so these tests don't
 depend on the storage layer (built in parallel). One integration test at the
@@ -9,14 +9,18 @@ yet.
 from __future__ import annotations
 
 import asyncio
+import shutil
+from pathlib import Path
 
 import pytest
 
 from core.agent import Agent
 from core.types import Context, Message
 from nodes.context_builder import ContextBuilderNode, ContextSection, ProfileSection
+from nodes.fewshot_section import FewShotSection
+from nodes.persona_section import PersonaSection
 from nodes.react_loop import ReActLoopNode
-from tests.fakes import FakeLLM
+from tests.fakes import FakeEmbedder, FakeLLM
 
 
 class FakeProfileStore:
@@ -208,8 +212,22 @@ class _Stores:
 
 
 class _Deps:
-    def __init__(self, profile) -> None:
-        self.stores = _Stores(profile)
+    """`Deps`-shaped double: real `config/` dir by default, so `persona`/`fewshot`
+    sections can be built without a full `app.Deps`."""
+
+    def __init__(
+        self,
+        profile=None,
+        config_dir: Path = Path("config"),
+        persona: str = "default",
+        prompt_version: str | None = None,
+        embedder=None,
+    ) -> None:
+        self.stores = _Stores(profile if profile is not None else FakeProfileStore())
+        self.config_dir = config_dir
+        self.persona = persona
+        self.prompt_version = prompt_version
+        self.embedder = embedder
 
 
 def test_from_config_default_sections_is_profile():
@@ -231,18 +249,239 @@ def test_from_config_ignores_profile_path_param():
 
 def test_from_config_unknown_param_raises():
     with pytest.raises(ValueError):
-        ContextBuilderNode.from_config({"bogus": 1}, _Deps(FakeProfileStore()))
-
-
-@pytest.mark.parametrize("name", ["persona", "memory", "artifact", "rag", "fewshot"])
-def test_from_config_story6_sections_raise_not_available_yet(name):
-    with pytest.raises(ValueError, match="Story 6"):
-        ContextBuilderNode.from_config({"sections": [name]}, _Deps(FakeProfileStore()))
+        ContextBuilderNode.from_config({"bogus": 1}, _Deps())
 
 
 def test_from_config_unknown_section_name_raises():
     with pytest.raises(ValueError):
-        ContextBuilderNode.from_config({"sections": ["bogus"]}, _Deps(FakeProfileStore()))
+        ContextBuilderNode.from_config({"sections": ["bogus"]}, _Deps())
+
+
+@pytest.mark.parametrize(
+    ("name", "story"), [("memory", "Story 10"), ("artifact", "Story 15"), ("rag", "Story 11")]
+)
+def test_from_config_unimplemented_sections_raise_not_available_yet(name, story):
+    with pytest.raises(ValueError, match=story):
+        ContextBuilderNode.from_config({"sections": [name]}, _Deps())
+
+
+def test_from_config_persona_section_is_available():
+    node = ContextBuilderNode.from_config({"sections": ["persona"]}, _Deps())
+
+    assert len(node.sections) == 1
+    assert isinstance(node.sections[0], PersonaSection)
+
+
+def test_from_config_fewshot_section_is_available():
+    node = ContextBuilderNode.from_config({"sections": ["fewshot"]}, _Deps(embedder=FakeEmbedder()))
+
+    assert len(node.sections) == 1
+    assert isinstance(node.sections[0], FewShotSection)
+
+
+def test_from_config_fewshot_passes_its_subdict_through():
+    node = ContextBuilderNode.from_config(
+        {"sections": ["fewshot"], "fewshot": {"k": 5}}, _Deps(embedder=FakeEmbedder())
+    )
+
+    assert node.sections[0].k == 5
+
+
+def test_from_config_fewshot_without_embedder_raises():
+    with pytest.raises(ValueError, match="embedder"):
+        ContextBuilderNode.from_config({"sections": ["fewshot"]}, _Deps(embedder=None))
+
+
+# --- from_config: budget -------------------------------------------------------------
+
+
+def test_from_config_no_budget_means_no_compression():
+    node = ContextBuilderNode.from_config({}, _Deps())
+    assert node.budget is None
+
+
+def test_from_config_budget_is_kept_as_given():
+    node = ContextBuilderNode.from_config(
+        {"budget": {"reserve_output": 512, "trigger_ratio": 0.5, "keep_last_turns": 2}}, _Deps()
+    )
+    assert node.budget == {"reserve_output": 512, "trigger_ratio": 0.5, "keep_last_turns": 2}
+
+
+def test_from_config_budget_partial_is_kept_partial():
+    node = ContextBuilderNode.from_config({"budget": {"keep_last_turns": 1}}, _Deps())
+    assert node.budget == {"keep_last_turns": 1}
+
+
+def test_from_config_budget_unknown_key_raises():
+    with pytest.raises(ValueError, match="bogus"):
+        ContextBuilderNode.from_config({"budget": {"bogus": 1}}, _Deps())
+
+
+@pytest.mark.parametrize("ratio", [0, -0.1, 1.1, 2])
+def test_from_config_budget_bad_ratio_raises(ratio):
+    with pytest.raises(ValueError, match="trigger_ratio"):
+        ContextBuilderNode.from_config({"budget": {"trigger_ratio": ratio}}, _Deps())
+
+
+@pytest.mark.parametrize("value", [-1, -100])
+def test_from_config_budget_negative_int_raises(value):
+    with pytest.raises(ValueError):
+        ContextBuilderNode.from_config({"budget": {"reserve_output": value}}, _Deps())
+
+
+def test_from_config_budget_non_int_raises():
+    with pytest.raises(ValueError):
+        ContextBuilderNode.from_config({"budget": {"keep_last_turns": 1.5}}, _Deps())
+
+
+def test_from_config_budget_not_a_mapping_raises():
+    with pytest.raises(ValueError, match="budget"):
+        ContextBuilderNode.from_config({"budget": ["nope"]}, _Deps())
+
+
+# --- from_config: rewrite_query -------------------------------------------------------
+
+
+def test_from_config_rewrite_query_defaults_to_false():
+    node = ContextBuilderNode.from_config({}, _Deps())
+    assert node.rewrite_query is False
+
+
+def test_from_config_rewrite_query_true():
+    node = ContextBuilderNode.from_config({"rewrite_query": True}, _Deps())
+    assert node.rewrite_query is True
+
+
+def test_from_config_rewrite_query_non_bool_raises():
+    with pytest.raises(ValueError, match="rewrite_query"):
+        ContextBuilderNode.from_config({"rewrite_query": "true"}, _Deps())
+
+
+# --- handle: rewrite_query runs before sections gather --------------------------------
+
+
+class RecordingQuerySection(ContextSection):
+    priority = 50
+
+    def __init__(self) -> None:
+        self.seen_queries: list[str | None] = []
+
+    async def build(self, ctx: Context) -> str | None:
+        self.seen_queries.append(ctx.state.get("query"))
+        return None
+
+
+async def test_rewrite_query_sets_state_before_sections_gather():
+    llm = FakeLLM(["rewritten query"])
+    recorder = RecordingQuerySection()
+    node = ContextBuilderNode([recorder], rewrite_query=True)
+    history = [Message("user", "old q"), Message("assistant", "old a")]
+    ctx = Context("new q", history, llm, {})
+
+    result = await node.handle(ctx, _next)
+
+    assert result.state["query"] == "rewritten query"
+    assert recorder.seen_queries == ["rewritten query"]
+
+
+async def test_rewrite_query_off_leaves_state_query_unset():
+    node = ContextBuilderNode([StaticSection("sys", 10)], rewrite_query=False)
+    ctx = make_ctx()
+
+    result = await node.handle(ctx, _next)
+
+    assert "query" not in result.state
+
+
+# --- handle: budget compression pass ---------------------------------------------------
+
+
+async def test_budget_applied_after_sections_assemble():
+    summary_text = "Rolling summary of the earlier turns."
+    llm = FakeLLM([summary_text], max_context_tokens=200)
+    history = []
+    for i in range(6):
+        history.append(Message("user", f"question number {i} " * 5))
+        history.append(Message("assistant", f"answer number {i} " * 5))
+    node = ContextBuilderNode(
+        [StaticSection("persona text", 10)],
+        budget={"reserve_output": 0, "trigger_ratio": 0.01, "keep_last_turns": 1},
+    )
+    ctx = Context("current question", history, llm, {})
+
+    result = await node.handle(ctx, _next)
+
+    stats = result.state["context_stats"]
+    assert stats["compressed"] is True
+    assert result.messages[0].role == "system"
+    assert summary_text in result.messages[0].content
+    assert "persona text" in result.messages[0].content
+
+
+async def test_no_budget_means_no_context_stats():
+    node = ContextBuilderNode([StaticSection("sys", 10)])
+    ctx = make_ctx()
+
+    result = await node.handle(ctx, _next)
+
+    assert "context_stats" not in result.state
+
+
+# --- integration: persona switch through build_agent + chat_turn ----------------------
+
+
+async def test_persona_switch_through_build_agent_and_chat_turn(tmp_path):
+    from app import build_agent, chat_turn
+    from storage.stores import InMemoryStores
+
+    shutil.copytree(Path("config/personas"), tmp_path / "personas")
+    shutil.copytree(Path("config/prompts"), tmp_path / "prompts")
+    cfg_path = tmp_path / "agent.yaml"
+    cfg_path.write_text(
+        """
+llm:
+  provider: ollama
+  model: fake
+persona: default
+prompt_version: v2
+pipeline:
+  - persist
+  - context: { sections: [persona] }
+  - react
+tools:
+  - calculator
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    class _NoopUI:
+        def on_token(self, text: str) -> None:
+            pass
+
+        def on_event(self, kind: str, data: dict) -> None:
+            pass
+
+        async def ask(self, question: str, kind: str = "confirm") -> str:
+            return "no"
+
+    llm = FakeLLM(["first reply", "second reply"])
+    stores = InMemoryStores()
+    agent = await build_agent(str(cfg_path), _NoopUI(), llm=llm, stores=stores)
+
+    await chat_turn(agent, stores, "s1", "hello")
+    first_system = llm.calls[0]["messages"][0]
+    assert first_system.role == "system"
+    assert "Sensai" in first_system.content
+
+    await chat_turn(agent, stores, "s1", "hello again", persona="tutor")
+    second_system = llm.calls[1]["messages"][0]
+    assert "Sensai" not in second_system.content
+    assert "Léa" in second_system.content  # the tutor persona's name
+
+    history_contents = [m.content for m in llm.calls[1]["messages"] if m.role != "system"]
+    assert "hello" in history_contents
+    assert "first reply" in history_contents
 
 
 # --- integration with the real ProfileStore, if it exists yet -----------------------
