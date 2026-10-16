@@ -16,3 +16,9 @@ pipeline:                      # list order = execution order (wiki §9)
 
 tools:
   - calculator
+  - read_file
+  - list_dir
+  - write_file
+
+approval:
+  - write_file

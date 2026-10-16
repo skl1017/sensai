@@ -1,0 +1,8 @@
+# Filesystem access policy checked by `PermissionPolicy` before any disk
+# operation (wiki §8.2, tools/file_tool.py). Deny-by-default: only what's
+# listed here is reachable by the file tools; a `deny: true` rule always
+# wins over a matching allow rule, whichever is declared first.
+
+rules:
+  - root: data/
+    modes: [read, write]
