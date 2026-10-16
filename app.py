@@ -27,6 +27,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+from config.db import db
 from config_loader import AgentConfig, load_config, normalize  # noqa: F401
 from core.agent import Agent
 from core.llm import ILLM, IEmbedder
@@ -38,9 +39,11 @@ from llm.ollama import Ollama, OllamaEmbedder
 from nodes.context_builder import ContextBuilderNode
 from nodes.persist_node import PersistNode
 from nodes.react_loop import ReActLoopNode
+from storage.chunk_store import ChunkStore
 from storage.conversation import ConversationStore
 from storage.profile import ProfileStore
 from storage.stores import InMemoryStores, Stores
+from storage.vector_storage import SqliteVectorStorage
 from tools.approved_tool import ApprovedTool
 from tools.ask_user_tool import AskUserTool
 from tools.calculator import CalculatorTool
@@ -136,7 +139,11 @@ def _stores_from_config(cfg: AgentConfig) -> InMemoryStores:
     if context_params is not None:
         profile = ProfileStore(context_params.get("profile_path", "data/profile.yaml"))
 
-    return InMemoryStores(conversation=conversation, profile=profile)
+    chunk_store = ChunkStore(
+        db.engine,
+        SqliteVectorStorage(db.engine),
+    )
+    return InMemoryStores(conversation=conversation, profile=profile, chunk_store=chunk_store)
 
 
 async def open_stores(cfg_path: str) -> InMemoryStores:

@@ -211,10 +211,12 @@ def test_default_priority_sits_between_fewshot_and_persona(embedder):
 # ---------- from_config ----------
 
 
-def make_deps(embedder="default", chunks=None):
+def make_deps(embedder="default", chunk_store="default"):
     return SimpleNamespace(
         embedder=FakeEmbedder() if embedder == "default" else embedder,
-        stores=SimpleNamespace(chunks=chunks or FakeChunkStore()),
+        stores=SimpleNamespace(
+            chunk_store=FakeChunkStore() if chunk_store == "default" else chunk_store
+        ),
     )
 
 
@@ -224,7 +226,7 @@ def test_from_config_wires_deps_and_params():
     section = RAGSection.from_config({"k": 6, "min_score": 0.3}, deps)
 
     assert section.embedder is deps.embedder
-    assert section.chunk_store is deps.stores.chunks
+    assert section.chunk_store is deps.stores.chunk_store
     assert section.k == 6
     assert section.min_score == 0.3
 

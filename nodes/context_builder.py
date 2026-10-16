@@ -43,6 +43,7 @@ from nodes.context_section import ContextSection
 from nodes.fewshot_section import FewShotSection
 from nodes.persona_section import PersonaSection
 from nodes.query_rewriter import rewrite_query
+from nodes.rag_section import RAGSection
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ _UNAVAILABLE_SECTIONS = {
     "rag": "Story 11",
 }
 
-_KNOWN_PARAMS = {"sections", "profile_path", "budget", "rewrite_query", "fewshot"}
+_KNOWN_PARAMS = {"sections", "profile_path", "budget", "rewrite_query", "fewshot", "rag"}
 _BUDGET_KEYS = {"reserve_output", "trigger_ratio", "keep_last_turns"}
 
 
@@ -151,7 +152,8 @@ class ContextBuilderNode(PipelineNode):
 
         names = params.get("sections", ["profile"])
         fewshot_params = params.get("fewshot", {})
-        sections = [cls._build_section(name, fewshot_params, deps) for name in names]
+        rag_params = params.get("rag", {})
+        sections = [cls._build_section(name, fewshot_params, rag_params, deps) for name in names]
 
         budget = params.get("budget")
         if budget is not None:
@@ -164,13 +166,15 @@ class ContextBuilderNode(PipelineNode):
         return cls(sections, budget=budget, rewrite_query=rewrite)
 
     @staticmethod
-    def _build_section(name: str, fewshot_params: dict, deps) -> ContextSection:
+    def _build_section(name: str, fewshot_params: dict, rag_params: dict, deps) -> ContextSection:
         if name == "profile":
             return ProfileSection(deps.stores.profile)
         if name == "persona":
             return PersonaSection.from_deps(deps)
         if name == "fewshot":
             return FewShotSection.from_config(fewshot_params, deps)
+        if name == "rag":
+            return RAGSection.from_config(rag_params, deps)
         if name in _UNAVAILABLE_SECTIONS:
             story = _UNAVAILABLE_SECTIONS[name]
             raise ValueError(f"Context section {name!r} is not available yet ({story})")

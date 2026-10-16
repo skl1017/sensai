@@ -37,9 +37,12 @@ class RAGSection(ContextSection):
         query_vector = (await self.embedder.embed([query]))[0]
 
         hits = await self.chunk_store.search(query_vector, self.k)
+        for _, score in hits:
+            print(score)
         hits = [(chunk, score) for chunk, score in hits if score >= self.min_score]
         if not hits:
             return None
+        print(hits)
 
         ctx.state["retrieved_chunks"] = [
             {
@@ -63,4 +66,4 @@ class RAGSection(ContextSection):
             raise ValueError("rag section requires an embedder")
 
         kwargs: dict[str, Any] = {k: params[k] for k in _KNOWN_PARAMS if k in params}
-        return cls(deps.embedder, deps.stores.chunks, **kwargs)
+        return cls(deps.embedder, deps.stores.chunk_store, **kwargs)
