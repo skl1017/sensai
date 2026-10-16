@@ -70,7 +70,10 @@ async def test_build_returns_none_when_no_hits(embedder):
 
 @pytest.mark.asyncio
 async def test_build_renders_numbered_passages_in_order(embedder):
-    hits = [(make_chunk("c1", "Cinq semaines de congés."), 0.9), (make_chunk("c2", "RTT en plus."), 0.7)]
+    hits = [
+        (make_chunk("c1", "Cinq semaines de congés."), 0.9),
+        (make_chunk("c2", "RTT en plus."), 0.7),
+    ]
     section, _ = make_section(embedder, hits=hits)
 
     text = await section.build(make_ctx())

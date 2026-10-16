@@ -67,7 +67,9 @@ class ChunkStore:
         by_id = {chunk.id: (chunk, name) for chunk, name in rows}
         return [
             (
-                ChunkData(r.id, r.text, r.source_id, r.chunk_index, r.doc_category, r.created_at, name),
+                ChunkData(
+                    r.id, r.text, r.source_id, r.chunk_index, r.doc_category, r.created_at, name
+                ),
                 self._similarity(h.distance),
             )
             for h in hits

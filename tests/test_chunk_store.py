@@ -63,7 +63,9 @@ def engine():
 async def test_search_returns_chunks_in_vector_order(engine):
     vectors = SearchableFakeVectors(results=[hit("c2", 0.1), hit("c1", 0.6)])
     store = ChunkStore(engine, vectors)
-    await store.add_chunks([make_chunk("c1"), make_chunk("c2", index=1)], [[1.0] * DIM, [2.0] * DIM])
+    await store.add_chunks(
+        [make_chunk("c1"), make_chunk("c2", index=1)], [[1.0] * DIM, [2.0] * DIM]
+    )
 
     results = await store.search([1.0] * DIM, k=2)
 
@@ -74,7 +76,9 @@ async def test_search_returns_chunks_in_vector_order(engine):
 async def test_search_converts_distance_to_similarity(engine):
     vectors = SearchableFakeVectors(results=[hit("c2", 0.1), hit("c1", 0.6)])
     store = ChunkStore(engine, vectors)
-    await store.add_chunks([make_chunk("c1"), make_chunk("c2", index=1)], [[1.0] * DIM, [2.0] * DIM])
+    await store.add_chunks(
+        [make_chunk("c1"), make_chunk("c2", index=1)], [[1.0] * DIM, [2.0] * DIM]
+    )
 
     results = await store.search([1.0] * DIM, k=2)
 
@@ -120,7 +124,9 @@ async def test_search_returns_source_file_name(engine):
 @pytest.mark.asyncio
 async def test_search_source_name_is_none_without_ingested_file(engine):
     store = ChunkStore(engine, SearchableFakeVectors(results=[hit("c1")]))
-    await store.add_chunks([make_chunk("c1")], [[1.0] * DIM])  # source_id "src1", pas de ligne IngestedFile
+    await store.add_chunks(
+        [make_chunk("c1")], [[1.0] * DIM]
+    )  # source_id "src1", pas de ligne IngestedFile
 
     ((chunk, _),) = await store.search([1.0] * DIM, k=1)
 

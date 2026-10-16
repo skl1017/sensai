@@ -11,7 +11,6 @@ _KNOWN_PARAMS = {"k", "min_score"}
 
 
 class RAGSection(ContextSection):
-
     def __init__(
         self,
         embedder: IEmbedder,
