@@ -65,6 +65,7 @@ Available commands:
   /profile instructions <text>   Set the profile's custom instructions.
   /profile clear                 Clear the whole profile.
   /persona [<name>]              Show or switch the persona for next turns.
+  /tools                         List the loaded tools.
 Node ids above accept any unique prefix of the full id.
 """
 
@@ -533,6 +534,18 @@ async def _do_persona(shell: _Shell, rest: str) -> None:
     shell.ui.out.write(f"Persona set to {shell.persona} for the next turns.\n")
 
 
+async def _do_tools(shell: _Shell, rest: str) -> None:
+    tools = shell.agent.tools
+    if not tools:
+        shell.ui.out.write("No tools loaded.\n")
+        return
+    for name, tool in sorted(tools.items()):
+        summary = " ".join(tool.description.split())
+        if len(summary) > 100:
+            summary = summary[:99] + "…"
+        shell.ui.out.write(f"  {name} — {summary}\n")
+
+
 COMMANDS: dict[str, CommandHandler] = {
     "/quit": _do_quit,
     "/exit": _do_quit,
@@ -546,6 +559,7 @@ COMMANDS: dict[str, CommandHandler] = {
     "/edit": _do_edit,
     "/profile": _do_profile,
     "/persona": _do_persona,
+    "/tools": _do_tools,
 }
 
 

@@ -296,3 +296,12 @@ async def test_cli_ask_unknown_kind_raises():
     except ValueError:
         return
     raise AssertionError("expected ValueError")
+
+
+async def test_tools_command_lists_loaded_tools():
+    from tests.fakes import FakeTool
+
+    agent = Agent(FakeLLM([]), [FakeTool()], [_ShortCircuitNode()])
+    out = io.StringIO()
+    await run_cli(agent, CliUI(out=out), scripted_read_line(["/tools", "/quit"]))
+    assert f"  {FakeTool().name} — " in out.getvalue()

@@ -44,4 +44,6 @@ mcp_servers:
     read_only: []                # noms des outils sans effet de bord
   - name: sensai                 # ton propre serveur
     command: python
-    args: ["-m", "sensai.mcp_server.server"]
+    args: ["-m", "mcp_server.server"]
+    # env:                       # optionnel : variables d'environnement du sous-processus
+    #   LOG_LEVEL: info
