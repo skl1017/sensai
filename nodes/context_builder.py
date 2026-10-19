@@ -52,7 +52,6 @@ logger = logging.getLogger(__name__)
 _UNAVAILABLE_SECTIONS = {
     "memory": "Story 10",
     "artifact": "Story 15",
-    "rag": "Story 11",
 }
 
 _KNOWN_PARAMS = {"sections", "profile_path", "budget", "rewrite_query", "fewshot", "rag"}
