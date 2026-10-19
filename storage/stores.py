@@ -30,6 +30,5 @@ class InMemoryStores:
         self.conversation = conversation if conversation is not None else ConversationStore()
         self.profile = profile if profile is not None else ProfileStore(None)
         self.memory_db: Any = None
-        self.chunk_store: Any = None
         self.chunk_store: Any = chunk_store
         self.journal: Any = None
