@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import logging
 import threading
 import uuid
 from collections.abc import Iterator
@@ -18,6 +19,8 @@ from storage.vector_storage import SqliteVectorStorage
 
 TEXT_EXTENSIONS = {".txt", ".md"}
 SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | {".pdf", ".docx"}
+
+logger = logging.getLogger(__name__)
 
 
 def to_ingested(p) -> IngestedFile:
@@ -177,7 +180,7 @@ def run_ingest(path: str = ".docs/", interval=10 * 60) -> threading.Event:
             try:
                 asyncio.run(ingest(path))
             except Exception:
-                print("ingestion failed")
+                logger.exception("ingestion of %s failed", path)
             stop_event.wait(interval)
 
     threading.Thread(target=loop, name="ingest-loop", daemon=False).start()
