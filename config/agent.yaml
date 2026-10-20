@@ -30,3 +30,9 @@ tools:
 
 approval:
   - write_file
+
+mcp_servers:
+  - name: filesystem
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    read_only: []

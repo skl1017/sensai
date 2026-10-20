@@ -18,6 +18,8 @@ clean.
 
 from __future__ import annotations
 
+from contextlib import AsyncExitStack
+
 from core import runtime
 from core.llm import ILLM
 from core.node import Next, PipelineNode
@@ -26,8 +28,15 @@ from core.types import Context, Message
 
 
 class Agent:
-    def __init__(self, llm: ILLM, tools: list[ITool], pipeline: list[PipelineNode]):
+    def __init__(
+        self,
+        llm: ILLM,
+        tools: list[ITool],
+        pipeline: list[PipelineNode],
+        stack: AsyncExitStack | None = None,
+    ):
         self.llm = llm
+        self._stack = stack
         self.tools = {t.name: t for t in tools}
         self.pipeline = pipeline
         self._chain = self._build_chain()
@@ -47,6 +56,12 @@ class Agent:
 
     async def _terminal(self, ctx: Context) -> Context:
         return ctx
+
+    async def aclose(self) -> None:
+        """Release resources the agent owns (e.g. MCP server connections). No-op without a stack."""
+        stack, self._stack = self._stack, None
+        if stack is not None:
+            await stack.aclose()
 
     async def run(
         self,

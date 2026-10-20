@@ -147,6 +147,17 @@ async def test_build_agent_unknown_tool_raises():
             await build_agent(str(cfg_path), _NoopUI(), llm=FakeLLM([]))
 
 
+@pytest.fixture
+def no_mcp(monkeypatch):
+    """The real config declares an `npx` MCP server: never spawn it in unit tests."""
+
+    async def _no_servers(configs, stack, **_):
+        return []
+
+    monkeypatch.setattr("app.connect_servers", _no_servers)
+
+
+@pytest.mark.usefixtures("no_mcp")
 async def test_build_agent_real_config_with_fake_llm():
     # Explicit in-memory stores: the real config's `persist`/`context` entries
     # point at `sessions/`/`data/profile.yaml`, and this test must never write there.
@@ -169,6 +180,7 @@ async def test_build_agent_real_config_with_fake_llm():
     assert isinstance(agent.pipeline[2], ReActLoopNode)
 
 
+@pytest.mark.usefixtures("no_mcp")
 async def test_write_file_requires_approval_in_real_config():
     from tools.approved_tool import ApprovedTool
 
@@ -182,6 +194,7 @@ async def test_write_file_requires_approval_in_real_config():
     assert not isinstance(agent.tools["list_dir"], ApprovedTool)
 
 
+@pytest.mark.usefixtures("no_mcp")
 async def test_build_agent_real_config_end_to_end_chat_turn():
     """One full turn against the real `config/agent.yaml`: persona, profile and
     fewshot sections, budget pass, react loop -- everything wired, nothing real."""
