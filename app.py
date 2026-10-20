@@ -63,6 +63,10 @@ class Deps:
     llm: ILLM
     ui: UserInterface
     stores: Stores | None = None
+    embedder: IEmbedder | None = None
+    config_dir: Path = Path("config")
+    persona: str = "default"
+    prompt_version: str | None = None
     permissions: PermissionPolicy | None = None
 
 
@@ -85,6 +89,7 @@ NODES: dict[str, Callable[[dict, Deps], PipelineNode]] = {
 
 TOOLS: dict[str, Callable[[dict, Deps], ITool | list[ITool]]] = {
     "calculator": CalculatorTool.from_config,
+    "ask_user": AskUserTool.from_config,
     "read_file": ReadFileTool.from_config,
     "list_dir": ListDirTool.from_config,
     "write_file": WriteFileTool.from_config,

@@ -172,9 +172,11 @@ async def test_build_agent_real_config_with_fake_llm():
 async def test_write_file_requires_approval_in_real_config():
     from tools.approved_tool import ApprovedTool
 
-    agent = await build_agent(
-        "config/agent.yaml", _NoopUI(), llm=FakeLLM([]), stores=InMemoryStores()
-    )
+    # The real config's `context` entry enables the `fewshot` section, which
+    # requires an embedder (see `test_build_agent_real_config_with_fake_llm`).
+    llm = FakeLLM([])
+    llm.embedder = FakeEmbedder()
+    agent = await build_agent("config/agent.yaml", _NoopUI(), llm=llm, stores=InMemoryStores())
     assert isinstance(agent.tools["write_file"], ApprovedTool)
     assert not isinstance(agent.tools["read_file"], ApprovedTool)
     assert not isinstance(agent.tools["list_dir"], ApprovedTool)
