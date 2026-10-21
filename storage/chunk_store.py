@@ -52,7 +52,7 @@ class ChunkStore:
 
     @staticmethod
     def _similarity(distance: float) -> float:
-        return 1.0 - distance
+        return 1.0 - distance**2 / 2
 
     async def search(self, embedding: list[float], k: int = 4) -> list[tuple[ChunkData, float]]:
         hits = await self._vectors.search("chunk_vectors", embedding, k)
