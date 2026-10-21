@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from sqlmodel import Session, select
 
-from config.db.models import Chunk
+from config.db.models import Chunk, IngestedFile
 from storage.vector_storage import IVectorStorage
 
 
@@ -14,6 +14,7 @@ class ChunkData:
     chunk_index: int
     doc_category: str | None
     created_at: str
+    source_name: str | None = None
 
 
 class ChunkStore:
@@ -48,3 +49,30 @@ class ChunkStore:
                 await self._vectors.delete(chunk.id)
                 session.delete(chunk)
             session.commit()
+
+    @staticmethod
+    def _similarity(distance: float) -> float:
+        return 1.0 - distance
+
+    async def search(self, embedding: list[float], k: int = 4) -> list[tuple[ChunkData, float]]:
+        hits = await self._vectors.search("chunk_vectors", embedding, k)
+        if not hits:
+            return []
+        with Session(self._engine) as session:
+            rows = session.exec(
+                select(Chunk, IngestedFile.file_name)
+                .join(IngestedFile, Chunk.source_id == IngestedFile.id, isouter=True)
+                .where(Chunk.id.in_([h.chunk_id for h in hits]))
+            ).all()
+        by_id = {chunk.id: (chunk, name) for chunk, name in rows}
+        return [
+            (
+                ChunkData(
+                    r.id, r.text, r.source_id, r.chunk_index, r.doc_category, r.created_at, name
+                ),
+                self._similarity(h.distance),
+            )
+            for h in hits
+            if (entry := by_id.get(h.chunk_id)) is not None
+            for r, name in [entry]
+        ]
