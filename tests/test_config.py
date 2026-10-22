@@ -88,3 +88,18 @@ def test_mcp_server_env_must_be_string_mapping(tmp_path):
             tmp_path,
             "llm: {model: m}\nmcp_servers:\n  - name: fs\n    command: npx\n    env: {A: 1}\n",
         )
+
+
+def test_reranker_section_defaults_to_none(tmp_path):
+    cfg = _load(tmp_path, "llm: {model: m}\n")
+    assert cfg.reranker is None
+
+
+def test_reranker_section_is_kept_as_mapping(tmp_path):
+    cfg = _load(tmp_path, "llm: {model: m}\nreranker: {provider: fastembed, model: x}\n")
+    assert cfg.reranker == {"provider": "fastembed", "model": "x"}
+
+
+def test_reranker_section_must_be_mapping(tmp_path):
+    with pytest.raises(ConfigError, match="reranker"):
+        _load(tmp_path, "llm: {model: m}\nreranker: fastembed\n")

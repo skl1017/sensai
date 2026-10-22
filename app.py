@@ -32,15 +32,17 @@ from pathlib import Path
 from config.db import db
 from config_loader import AgentConfig, load_config, normalize  # noqa: F401
 from core.agent import Agent
-from core.llm import ILLM, IEmbedder
+from core.llm import ILLM, IEmbedder, IReranker
 from core.node import PipelineNode
 from core.tool import ITool
 from core.types import Context
 from core.ui import UserInterface
+from llm.cross_encoder import FastEmbedReranker
 from llm.ollama import Ollama, OllamaEmbedder
 from nodes.context_builder import ContextBuilderNode
 from nodes.persist_node import PersistNode
 from nodes.react_loop import ReActLoopNode
+from nodes.reranker import LLMReranker
 from storage.chunk_store import ChunkStore
 from storage.conversation import ConversationStore
 from storage.profile import ProfileStore
@@ -60,15 +62,18 @@ class Deps:
 
     `stores` (conversation tree, memory DB, vector store, journal) is optional
     until the storage layer is wired in. `embedder` is the LLM's embedder
-    when it has one (`FewShotSection`); `config_dir` is the directory of the
-    loaded `agent.yaml` (personas, prompts, few-shot bank are resolved
-    against it); `persona`/`prompt_version` are the config's root keys.
+    when it has one (`FewShotSection`); `reranker` is built from the
+    config's `reranker:` section (`RAGSection` with `rerank: true`);
+    `config_dir` is the directory of the loaded `agent.yaml` (personas,
+    prompts, few-shot bank are resolved against it);
+    `persona`/`prompt_version` are the config's root keys.
     """
 
     llm: ILLM
     ui: UserInterface
     stores: Stores | None = None
     embedder: IEmbedder | None = None
+    reranker: IReranker | None = None
     config_dir: Path = Path("config")
     persona: str = "default"
     prompt_version: str | None = None
@@ -110,6 +115,27 @@ def build_llm(llm_cfg: dict) -> Ollama:
         embedder_kwargs["model"] = embed_model
     embedder = OllamaEmbedder(**embedder_kwargs)
     return Ollama(embedder=embedder, **cfg)
+
+
+def build_reranker(reranker_cfg: dict | None, llm: ILLM) -> IReranker | None:
+    """Build the `IReranker` from the `reranker:` config section (`None` when absent).
+
+    `provider: fastembed` (default) is a local cross-encoder (`model`,
+    `cache_dir` forwarded); `provider: llm` grades passages with `llm`.
+    """
+    if reranker_cfg is None:
+        return None
+    cfg = dict(reranker_cfg)
+    provider = cfg.pop("provider", "fastembed")
+    if provider == "fastembed":
+        return FastEmbedReranker(**cfg)
+    if provider == "llm":
+        if cfg:
+            raise ValueError(
+                f"Unknown reranker param(s) for provider 'llm': {', '.join(sorted(cfg))}"
+            )
+        return LLMReranker(llm)
+    raise ValueError(f"Unsupported reranker provider {provider!r}: expected 'fastembed' or 'llm'")
 
 
 def needs_approval(tool: ITool, cfg: AgentConfig) -> bool:
@@ -190,6 +216,7 @@ async def build_agent(
         ui=ui,
         stores=resolved_stores,
         embedder=getattr(resolved_llm, "embedder", None),
+        reranker=build_reranker(cfg.reranker, resolved_llm),
         config_dir=Path(cfg_path).parent,
         persona=cfg.persona,
         prompt_version=cfg.prompt_version,
