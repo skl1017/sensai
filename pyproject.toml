@@ -26,6 +26,9 @@ dev = [
     "pytest-asyncio",
     "ruff",
 ]
+rerank = [
+    "fastembed",
+]
 
 [tool.setuptools.packages.find]
 include = ["core*", "llm*", "tools*", "nodes*", "storage*", "ui*", "mcp_server*"]

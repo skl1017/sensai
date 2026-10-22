@@ -1,10 +1,10 @@
-"""Unit tests for the core interfaces: ILLM, IEmbedder, ITool, PipelineNode."""
+"""Unit tests for the core interfaces: ILLM, IEmbedder, IReranker, ITool, PipelineNode."""
 
 from collections.abc import AsyncIterator
 
 import pytest
 
-from core.llm import ILLM, IEmbedder
+from core.llm import ILLM, IEmbedder, IReranker
 from core.node import Next, PipelineNode
 from core.tool import ITool
 from core.types import Context, LLMChunk, Message
@@ -18,6 +18,11 @@ def test_illm_cannot_be_instantiated():
 def test_iembedder_cannot_be_instantiated():
     with pytest.raises(TypeError):
         IEmbedder()
+
+
+def test_ireranker_cannot_be_instantiated():
+    with pytest.raises(TypeError):
+        IReranker()
 
 
 def test_itool_cannot_be_instantiated():
