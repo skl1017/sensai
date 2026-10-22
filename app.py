@@ -51,6 +51,7 @@ from tools.ask_user_tool import AskUserTool
 from tools.calculator import CalculatorTool
 from tools.file_tool import ListDirTool, PermissionPolicy, ReadFileTool, WriteFileTool
 from tools.mcp_adapter import MCPToolAdapter, connect_servers
+from tools.web_search import build_web_tools
 
 ROOT = "root"  # sentinel `parent_id`: fork under the session root (no parent)
 
@@ -99,6 +100,7 @@ TOOLS: dict[str, Callable[[dict, Deps], ITool | list[ITool]]] = {
     "read_file": ReadFileTool.from_config,
     "list_dir": ListDirTool.from_config,
     "write_file": WriteFileTool.from_config,
+    "web_search": build_web_tools,
 }
 
 
