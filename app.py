@@ -11,6 +11,9 @@ factories (no globals, per `CLAUDE.md`). `stores` default to on-disk-backed
 `persist`/`context` pipeline entries (X2, #23-#25). `mcp_servers` are
 connected by `build_agent` (their tools join the others; the `AsyncExitStack`
 owning the connections is handed to the `Agent`, whose `aclose()` releases it).
+`agents` entries are sub-agents built recursively from their own config file
+and exposed as `ask_<name>` tools (A2); their `aclose()` is registered on the
+same stack.
 `chat_turn` is the CLI/Web/scheduler shared entry point: it loads
 history/artifact/summary and runs the agent, but no longer appends the exchange
 itself — `PersistNode`, sitting in the configured pipeline, owns that write.
@@ -30,7 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from config.db import db
-from config_loader import AgentConfig, load_config, normalize  # noqa: F401
+from config_loader import AgentConfig, SubAgentConfig, load_config, normalize  # noqa: F401
 from core.agent import Agent
 from core.llm import ILLM, IEmbedder, IReranker
 from core.node import PipelineNode
@@ -48,6 +51,7 @@ from storage.conversation import ConversationStore
 from storage.profile import ProfileStore
 from storage.stores import InMemoryStores, Stores
 from storage.vector_storage import SqliteVectorStorage
+from tools.agent_tool import AgentTool, SubAgentUI
 from tools.approved_tool import ApprovedTool
 from tools.ask_user_tool import AskUserTool
 from tools.calculator import CalculatorTool
@@ -197,11 +201,61 @@ async def open_stores(cfg_path: str) -> InMemoryStores:
     return _stores_from_config(cfg)
 
 
+async def _build_sub_agents(
+    entries: list[SubAgentConfig],
+    cfg_path: str,
+    ui: UserInterface,
+    stores: Stores,
+    config_dir: Path,
+    ancestors: tuple[Path, ...],
+    stack: AsyncExitStack,
+) -> list[ITool]:
+    """Build one `AgentTool` per `agents:` entry, each around a recursively built `Agent`.
+
+    A sub-agent shares the parent's `stores` and `config_dir` (personas,
+    prompts, few-shot bank) and gets the parent's UI through `SubAgentUI`.
+    `ancestors` holds the config files being built up the chain: a sub-agent
+    config already in it is a cycle (A -> B -> A) and raises `ValueError`
+    instead of recursing forever.
+    """
+    tools: list[ITool] = []
+    for entry in entries:
+        sub_path = (Path(cfg_path).parent / entry.config).resolve()
+        if sub_path in ancestors:
+            chain = " -> ".join(str(p) for p in (*ancestors, sub_path))
+            raise ValueError(f"agents: sub-agent config cycle: {chain}")
+        sub = await build_agent(
+            str(sub_path),
+            SubAgentUI(ui, entry.name),
+            stores=stores,
+            config_dir=config_dir,
+            _ancestors=ancestors,
+        )
+        stack.push_async_callback(sub.aclose)
+        guards = {
+            key: value
+            for key in ("max_depth", "max_calls", "timeout")
+            if (value := getattr(entry, key)) is not None
+        }
+        tools.append(AgentTool(entry.name, entry.description, sub, **guards))
+    return tools
+
+
+def _check_unique_names(tools: list[ITool]) -> None:
+    seen: set[str] = set()
+    for tool in tools:
+        if tool.name in seen:
+            raise ValueError(f"Duplicate tool name {tool.name!r}")
+        seen.add(tool.name)
+
+
 async def build_agent(
     cfg_path: str,
     ui: UserInterface,
     llm: ILLM | None = None,
     stores: Stores | None = None,
+    config_dir: Path | None = None,
+    _ancestors: tuple[Path, ...] = (),
 ) -> Agent:
     """Build an `Agent` from the YAML config at `cfg_path`.
 
@@ -213,8 +267,12 @@ async def build_agent(
     and their tools added (wrapped unless `read_only`, see `needs_approval`);
     the connections live in an `AsyncExitStack` owned by the returned agent,
     so callers must `await agent.aclose()` when done. If assembly fails, the
-    stack is closed before the error propagates.
+    stack is closed before the error propagates. `config_dir` defaults to
+    the config file's directory (sub-agents receive the parent's). Tool
+    names, sub-agents' `ask_<name>` included, must be unique.
+    `_ancestors` is internal to sub-agent recursion (cycle detection).
     """
+    ancestors = (*_ancestors, Path(cfg_path).resolve())
     cfg = await asyncio.to_thread(load_config, cfg_path)
     resolved_llm = llm if llm is not None else build_llm(cfg.llm.as_dict())
     resolved_stores = stores if stores is not None else _stores_from_config(cfg)
@@ -224,7 +282,7 @@ async def build_agent(
         stores=resolved_stores,
         embedder=getattr(resolved_llm, "embedder", None),
         reranker=build_reranker(cfg.reranker, resolved_llm),
-        config_dir=Path(cfg_path).parent,
+        config_dir=config_dir if config_dir is not None else Path(cfg_path).parent,
         persona=cfg.persona,
         prompt_version=cfg.prompt_version,
     )
@@ -238,6 +296,10 @@ async def build_agent(
                 raise ValueError(f"Unknown tool {name!r}. Available: {', '.join(sorted(TOOLS))}")
             built.append(factory(params, deps))
         all_tools = flatten(built) + await connect_servers(cfg.mcp_servers, stack)
+        all_tools += await _build_sub_agents(
+            cfg.agents, cfg_path, ui, resolved_stores, deps.config_dir, ancestors, stack
+        )
+        _check_unique_names(all_tools)
         tools = [ApprovedTool(t, ui) if needs_approval(t, cfg) else t for t in all_tools]
 
         pipeline: list[PipelineNode] = []
