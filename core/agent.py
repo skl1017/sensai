@@ -11,7 +11,9 @@ losing anything.
 `run` also publishes `session_id` and `depth` (from `state`) into the
 `ContextVar`s declared in `core/runtime.py`, for the duration of the chain
 call only: tools that need this request info read it from there since they
-don't receive the `Context`. Both are reset in a `finally`, so interruption
+don't receive the `Context`. The root run (no enclosing run) also
+publishes a fresh `subagent_calls` list, shared by every sub-agent run
+nested in it. All are reset in a `finally`, so interruption
 (`asyncio.CancelledError`, which is never caught) still leaves the vars
 clean.
 """
@@ -72,8 +74,13 @@ class Agent:
         ctx = Context(user_input, list(history), self.llm, self.tools, state=state or {})
         session_token = runtime.session_id.set(ctx.state.get("session_id"))
         depth_token = runtime.depth.set(ctx.state.get("depth", 0))
+        calls_token = None
+        if runtime.subagent_calls.get() is None:
+            calls_token = runtime.subagent_calls.set([])
         try:
             return await self._chain(ctx)
         finally:
             runtime.session_id.reset(session_token)
             runtime.depth.reset(depth_token)
+            if calls_token is not None:
+                runtime.subagent_calls.reset(calls_token)
