@@ -48,6 +48,22 @@ class McpServerConfig:
 
 
 @dataclass
+class SubAgentConfig:
+    """One `agents:` entry: a sub-agent exposed as `ask_<name>` (A2).
+
+    `config` is the sub-agent's own `agent.yaml`, relative to the parent's
+    config file directory. `None` guards fall back to `AgentTool`'s defaults.
+    """
+
+    name: str
+    config: str
+    description: str
+    max_depth: int | None = None
+    max_calls: int | None = None
+    timeout: float | None = None
+
+
+@dataclass
 class AgentConfig:
     """Validated content of `agent.yaml`. `pipeline`/`tools` are `(name, params)` pairs."""
 
@@ -59,6 +75,7 @@ class AgentConfig:
     tools: list[tuple[str, dict]] = field(default_factory=list)
     approval: list[str] = field(default_factory=list)
     mcp_servers: list[McpServerConfig] = field(default_factory=list)
+    agents: list[SubAgentConfig] = field(default_factory=list)
 
 
 def normalize(entry: Any, where: str = "entry") -> tuple[str, dict]:
@@ -153,6 +170,32 @@ def _parse_mcp_server(raw: Any, where: str) -> McpServerConfig:
     )
 
 
+def _positive(raw: dict, key: str, where: str, kind: tuple[type, ...]) -> Any:
+    value = raw.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, kind) or value <= 0:
+        raise ConfigError(f"{where}.{key}: expected a positive number, got {value!r}")
+    return value
+
+
+def _parse_sub_agent(raw: Any, where: str) -> SubAgentConfig:
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{where}: expected a mapping, got {type(raw).__name__}")
+    _check_keys(raw, {"name", "config", "description", "max_depth", "max_calls", "timeout"}, where)
+    for key in ("name", "config", "description"):
+        if not isinstance(raw.get(key), str) or not raw[key].strip():
+            raise ConfigError(f"{where}.{key}: required")
+    return SubAgentConfig(
+        name=raw["name"],
+        config=raw["config"],
+        description=raw["description"],
+        max_depth=_positive(raw, "max_depth", where, (int,)),
+        max_calls=_positive(raw, "max_calls", where, (int,)),
+        timeout=_positive(raw, "timeout", where, (int, float)),
+    )
+
+
 def parse_config(data: Any) -> AgentConfig:
     """Validate an already-parsed YAML document."""
     if not isinstance(data, dict):
@@ -168,6 +211,7 @@ def parse_config(data: Any) -> AgentConfig:
             "tools",
             "approval",
             "mcp_servers",
+            "agents",
         },
         "",
     )
@@ -193,6 +237,7 @@ def parse_config(data: Any) -> AgentConfig:
             _parse_mcp_server(e, f"mcp_servers[{i}]")
             for i, e in enumerate(_list(data, "mcp_servers"))
         ],
+        agents=[_parse_sub_agent(e, f"agents[{i}]") for i, e in enumerate(_list(data, "agents"))],
     )
 
 

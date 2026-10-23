@@ -31,6 +31,14 @@ tools:
   - calculator
   - ask_user
 
+# agents:                       # sub-agents exposed as `ask_<name>` tools (A2)
+#   - name: tutor
+#     config: agents/tutor.yaml  # relative to this file
+#     description: "Tuteur de mathématiques : explique un calcul ou une notion mathématique pas à pas."
+#     max_depth: 2               # nesting depth limit
+#     max_calls: 3               # calls of this sub-agent per request
+#     timeout: 120               # seconds, a whole sub-agent ReAct loop
+
 mcp_servers:
   - name: filesystem
     command: npx

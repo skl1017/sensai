@@ -47,3 +47,11 @@ mcp_servers:
     args: ["-m", "mcp_server.server"]
     # env:                       # optionnel : variables d'environnement du sous-processus
     #   LOG_LEVEL: info
+
+agents:                          # sous-agents exposés comme outils `ask_<nom>` (A2)
+  - name: tutor
+    config: agents/tutor.yaml    # un agent.yaml ordinaire, relatif à ce fichier
+    description: "Tuteur de mathématiques : explique un calcul ou une notion mathématique pas à pas."
+    max_depth: 2
+    max_calls: 3
+    timeout: 120
