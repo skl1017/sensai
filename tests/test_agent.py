@@ -224,3 +224,38 @@ async def test_cancelled_error_propagates_and_resets_contextvars():
         await agent.run("hi", [], state={"session_id": "sess-x", "depth": 2})
     assert runtime.session_id.get() is None
     assert runtime.depth.get() == 0
+
+
+class CallsCapturingNode(PipelineNode):
+    def __init__(self, captured: list):
+        self.captured = captured
+
+    async def handle(self, ctx: Context, next: Next) -> Context:
+        self.captured.append(runtime.subagent_calls.get())
+        return await next(ctx)
+
+
+async def test_root_run_publishes_a_fresh_subagent_call_list_then_resets_it():
+    captured: list = []
+    agent = make_agent([CallsCapturingNode(captured)])
+
+    await agent.run("a", [])
+    await agent.run("b", [])
+
+    assert captured == [[], []]
+    assert captured[0] is not captured[1]
+    assert runtime.subagent_calls.get() is None
+
+
+async def test_nested_run_reuses_the_enclosing_subagent_call_list():
+    captured: list = []
+    agent = make_agent([CallsCapturingNode(captured)])
+    outer = ["parent"]
+    token = runtime.subagent_calls.set(outer)
+    try:
+        await agent.run("a", [], state={"depth": 1})
+    finally:
+        runtime.subagent_calls.reset(token)
+
+    assert captured == [outer]
+    assert captured[0] is outer

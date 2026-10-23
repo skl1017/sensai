@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from app import (
@@ -25,6 +27,7 @@ from nodes.react_loop import ReActLoopNode
 from nodes.reranker import LLMReranker
 from storage.stores import InMemoryStores
 from tests.fakes import FakeEmbedder, FakeLLM, FakeTool
+from tools.agent_tool import AgentTool, SubAgentUI
 
 
 class _NoopUI:
@@ -583,3 +586,127 @@ async def test_build_agent_uses_open_stores_equivalent_without_reloading(monkeyp
     await build_agent(str(cfg_path), _NoopUI(), llm=FakeLLM([]))
 
     assert len(calls) == 1
+
+
+# --- sub-agents (A2) -----------------------------------------------------------
+
+_SUB_LLM = "llm: {provider: ollama, model: m}\n"
+
+
+def _write(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+async def test_build_agent_exposes_sub_agent_as_ask_tool(tmp_path):
+    _write(
+        tmp_path / "agents" / "helper.yaml", _SUB_LLM + "pipeline: [react]\ntools: [calculator]\n"
+    )
+    cfg = _write(
+        tmp_path / "agent.yaml",
+        _SUB_LLM
+        + "pipeline: [react]\n"
+        + "agents:\n"
+        + "  - {name: helper, config: agents/helper.yaml, description: Aide., max_calls: 5}\n",
+    )
+    ui = _NoopUI()
+
+    agent = await build_agent(str(cfg), ui, llm=FakeLLM([]), stores=InMemoryStores())
+    try:
+        tool = agent.tools["ask_helper"]
+        assert isinstance(tool, AgentTool)
+        assert tool.max_calls == 5
+        assert tool.max_depth == 2
+        assert set(tool.agent.tools) == {"calculator"}
+        react = tool.agent.pipeline[0]
+        assert isinstance(react.on_event.__self__, SubAgentUI)
+        assert react.on_event.__self__.parent is ui
+    finally:
+        await agent.aclose()
+
+
+async def test_build_agent_closes_sub_agents_on_aclose(tmp_path):
+    _write(tmp_path / "helper.yaml", _SUB_LLM + "pipeline: [react]\n")
+    cfg = _write(
+        tmp_path / "agent.yaml",
+        _SUB_LLM + "agents: [{name: helper, config: helper.yaml, description: d}]\n",
+    )
+
+    agent = await build_agent(str(cfg), _NoopUI(), llm=FakeLLM([]), stores=InMemoryStores())
+    sub = agent.tools["ask_helper"].agent
+    await agent.aclose()
+
+    assert sub._stack is None
+
+
+@pytest.mark.parametrize("self_cycle", [True, False])
+async def test_build_agent_rejects_sub_agent_config_cycle(tmp_path, self_cycle):
+    if self_cycle:
+        cfg = _write(
+            tmp_path / "a.yaml", _SUB_LLM + "agents: [{name: a, config: a.yaml, description: d}]\n"
+        )
+    else:
+        cfg = _write(
+            tmp_path / "a.yaml", _SUB_LLM + "agents: [{name: b, config: b.yaml, description: d}]\n"
+        )
+        _write(
+            tmp_path / "b.yaml", _SUB_LLM + "agents: [{name: a, config: a.yaml, description: d}]\n"
+        )
+
+    with pytest.raises(ValueError, match="cycle"):
+        await build_agent(str(cfg), _NoopUI(), llm=FakeLLM([]), stores=InMemoryStores())
+
+
+async def test_build_agent_rejects_duplicate_tool_names(tmp_path):
+    _write(tmp_path / "helper.yaml", _SUB_LLM)
+    cfg = _write(
+        tmp_path / "agent.yaml",
+        _SUB_LLM
+        + "agents:\n"
+        + "  - {name: helper, config: helper.yaml, description: d}\n"
+        + "  - {name: helper, config: helper.yaml, description: d}\n",
+    )
+
+    with pytest.raises(ValueError, match="Duplicate tool name 'ask_helper'"):
+        await build_agent(str(cfg), _NoopUI(), llm=FakeLLM([]), stores=InMemoryStores())
+
+
+async def test_sub_agent_shares_parent_stores_and_config_dir(tmp_path):
+    # The sub-agent config sits in agents/, which has no personas/: its persona
+    # section only builds if it resolves against the parent's config_dir.
+    _write(
+        tmp_path / "agents" / "helper.yaml",
+        _SUB_LLM + "pipeline: [{context: {sections: [persona]}}]\n",
+    )
+    cfg = _write(
+        tmp_path / "agent.yaml",
+        _SUB_LLM + "agents: [{name: helper, config: agents/helper.yaml, description: d}]\n",
+    )
+    stores = InMemoryStores()
+
+    agent = await build_agent(
+        str(cfg), _NoopUI(), llm=FakeLLM([]), stores=stores, config_dir=Path("config")
+    )
+    try:
+        assert "ask_helper" in agent.tools
+    finally:
+        await agent.aclose()
+
+
+async def test_tutor_sub_agent_builds_from_real_config(tmp_path):
+    cfg = _write(
+        tmp_path / "agent.yaml",
+        _SUB_LLM
+        + "agents: [{name: tutor, config: "
+        + str(Path("config/agents/tutor.yaml").resolve())
+        + ", description: d}]\n",
+    )
+
+    agent = await build_agent(
+        str(cfg), _NoopUI(), llm=FakeLLM([]), stores=InMemoryStores(), config_dir=Path("config")
+    )
+    try:
+        assert set(agent.tools["ask_tutor"].agent.tools) == {"calculator"}
+    finally:
+        await agent.aclose()
