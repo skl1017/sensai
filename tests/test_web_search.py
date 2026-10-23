@@ -15,6 +15,7 @@ from tools.web_search import (
     SearchEngine,
     SearchResult,
     SearXNGProvider,
+    SerpApiProvider,
     SSRFBlocked,
     WebSearchTool,
     _check_public_url,
@@ -147,6 +148,83 @@ class TestSearXNGProvider:
         provider = SearXNGProvider("http://localhost:8080")
         results = await provider.search("q", 5)
         assert results == [SearchResult(title="", url="", snippet="")]
+
+    def test_from_config_builds_provider(self):
+        provider = SearXNGProvider.from_config({"url": "http://localhost:8080", "timeout": 3.0})
+        assert provider.url == "http://localhost:8080"
+        assert provider.timeout == 3.0
+
+    def test_from_config_missing_url_raises(self):
+        with pytest.raises(ValueError, match="url"):
+            SearXNGProvider.from_config({})
+
+
+class TestSerpApiProvider:
+    def test_is_a_search_engine(self):
+        assert isinstance(SerpApiProvider(api_key="k"), SearchEngine)
+
+    async def test_search_builds_results_from_organic_results(self, monkeypatch):
+        def handler(request):
+            assert request.url.params["engine"] == "google"
+            assert request.url.params["q"] == "python"
+            assert request.url.params["api_key"] == "secret-key"
+            return httpx.Response(
+                200,
+                json={
+                    "organic_results": [
+                        {"title": "A", "link": "https://a.test", "snippet": "snippet a"},
+                        {"title": "B", "link": "https://b.test", "snippet": "snippet b"},
+                    ]
+                },
+            )
+
+        _patch_client(monkeypatch, handler)
+        provider = SerpApiProvider(api_key="secret-key")
+        results = await provider.search("python", max_results=5)
+
+        assert results == [
+            SearchResult(title="A", url="https://a.test", snippet="snippet a"),
+            SearchResult(title="B", url="https://b.test", snippet="snippet b"),
+        ]
+
+    async def test_search_caps_at_max_results(self, monkeypatch):
+        def handler(request):
+            return httpx.Response(
+                200,
+                json={
+                    "organic_results": [
+                        {"title": str(i), "link": "u", "snippet": ""} for i in range(5)
+                    ]
+                },
+            )
+
+        _patch_client(monkeypatch, handler)
+        provider = SerpApiProvider(api_key="k")
+        results = await provider.search("q", max_results=2)
+        assert len(results) == 2
+
+    async def test_search_raises_on_http_error(self, monkeypatch):
+        _patch_client(monkeypatch, lambda request: httpx.Response(401))
+        provider = SerpApiProvider(api_key="bad-key")
+        with pytest.raises(httpx.HTTPStatusError):
+            await provider.search("q", 5)
+
+    async def test_missing_fields_default_to_empty_string(self, monkeypatch):
+        _patch_client(monkeypatch, lambda r: httpx.Response(200, json={"organic_results": [{}]}))
+        provider = SerpApiProvider(api_key="k")
+        results = await provider.search("q", 5)
+        assert results == [SearchResult(title="", url="", snippet="")]
+
+    def test_from_config_reads_api_key_from_env(self, monkeypatch):
+        monkeypatch.setenv("SERPAPI_API_KEY", "env-key")
+        provider = SerpApiProvider.from_config({"timeout": 3.0})
+        assert provider.api_key == "env-key"
+        assert provider.timeout == 3.0
+
+    def test_from_config_missing_env_var_raises(self, monkeypatch):
+        monkeypatch.delenv("SERPAPI_API_KEY", raising=False)
+        with pytest.raises(ValueError, match="SERPAPI_API_KEY"):
+            SerpApiProvider.from_config({})
 
 
 class TestTextExtractor:
@@ -286,8 +364,19 @@ class TestBuildWebTools:
         assert [t.name for t in tools] == ["web_search", "fetch_page"]
         assert isinstance(tools[0].engine, SearXNGProvider)
 
-    def test_provider_defaults_to_searxng(self):
+    def test_provider_defaults_to_searxng_without_a_serpapi_key(self, monkeypatch):
+        monkeypatch.delenv("SERPAPI_API_KEY", raising=False)
         tools = build_web_tools({"url": "http://localhost:8080"}, None)
+        assert isinstance(tools[0].engine, SearXNGProvider)
+
+    def test_provider_defaults_to_serpapi_when_a_key_is_set(self, monkeypatch):
+        monkeypatch.setenv("SERPAPI_API_KEY", "env-key")
+        tools = build_web_tools({}, None)
+        assert isinstance(tools[0].engine, SerpApiProvider)
+
+    def test_explicit_provider_is_never_overridden_by_the_env(self, monkeypatch):
+        monkeypatch.setenv("SERPAPI_API_KEY", "env-key")
+        tools = build_web_tools({"provider": "searxng", "url": "http://localhost:8080"}, None)
         assert isinstance(tools[0].engine, SearXNGProvider)
 
     def test_unknown_provider_raises(self):
@@ -302,3 +391,14 @@ class TestBuildWebTools:
         web, fetch = build_web_tools({"url": "http://localhost:8080", "timeout": 2.5}, None)
         assert web.engine.timeout == 2.5
         assert fetch.timeout == 2.5
+
+    def test_serpapi_provider_reads_key_from_env(self, monkeypatch):
+        monkeypatch.setenv("SERPAPI_API_KEY", "env-key")
+        web, _fetch = build_web_tools({"provider": "serpapi"}, None)
+        assert isinstance(web.engine, SerpApiProvider)
+        assert web.engine.api_key == "env-key"
+
+    def test_serpapi_without_env_var_raises(self, monkeypatch):
+        monkeypatch.delenv("SERPAPI_API_KEY", raising=False)
+        with pytest.raises(ValueError, match="SERPAPI_API_KEY"):
+            build_web_tools({"provider": "serpapi"}, None)

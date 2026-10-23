@@ -28,7 +28,7 @@ tools:
   - read_file
   - list_dir
   - write_file
-  - web_search: { provider: searxng, url: http://localhost:8080 }
+  - web_search: { url: http://localhost:8080 } # provider: serpapi if SERPAPI_API_KEY is set, else searxng
 
 approval:
   - write_file

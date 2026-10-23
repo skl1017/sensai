@@ -1,5 +1,6 @@
 import asyncio
 import ipaddress
+import os
 import socket
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -7,8 +8,11 @@ from html.parser import HTMLParser
 from urllib.parse import urlparse
 
 import httpx
+from dotenv import load_dotenv
 
 from core.tool import ITool
+
+load_dotenv()
 
 MAX_PAGE_CHARS = 5000
 
@@ -84,8 +88,52 @@ class SearXNGProvider(SearchEngine):
                 for item in data.get("results", [])[:max_results]
             ]
 
+    @classmethod
+    def from_config(cls, params: dict) -> "SearXNGProvider":
+        url = params.get("url")
+        if not url:
+            raise ValueError("provider='searxng' requires a 'url' param (the instance's base URL)")
+        return cls(url=url, timeout=params.get("timeout", 10.0))
 
-_PROVIDERS = {"searxng": SearXNGProvider}
+
+class SerpApiProvider(SearchEngine):
+    """Call Google Search via SerpApi (https://serpapi.com/).
+
+    The API key is read from the `SERPAPI_API_KEY` environment variable, never
+    from `agent.yaml` — a config file gets committed, a secret must not (per
+    CLAUDE.md: `.env*` is gitignored, never commit secrets).
+    """
+
+    def __init__(self, api_key: str, timeout: float = 10.0) -> None:
+        self.api_key = api_key
+        self.timeout = timeout
+
+    async def search(self, query: str, max_results: int) -> list[SearchResult]:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                "https://serpapi.com/search",
+                params={"engine": "google", "q": query, "api_key": self.api_key},
+            )
+            response.raise_for_status()
+            data = response.json()
+            return [
+                SearchResult(
+                    title=item.get("title", ""),
+                    url=item.get("link", ""),
+                    snippet=item.get("snippet", ""),
+                )
+                for item in data.get("organic_results", [])[:max_results]
+            ]
+
+    @classmethod
+    def from_config(cls, params: dict) -> "SerpApiProvider":
+        api_key = os.environ.get("SERPAPI_API_KEY")
+        if not api_key:
+            raise ValueError("provider='serpapi' requires the SERPAPI_API_KEY environment variable")
+        return cls(api_key=api_key, timeout=params.get("timeout", 10.0))
+
+
+_PROVIDERS = {"searxng": SearXNGProvider, "serpapi": SerpApiProvider}
 
 
 class _TextExtractor(HTMLParser):
@@ -201,17 +249,17 @@ class FetchPageTool(ITool):
 
 
 def build_web_tools(params: dict, deps: object) -> list[ITool]:
-    provider_name = params.get("provider", "searxng")
+    provider_name = params.get("provider")
+    if provider_name is None:
+        # No explicit choice: prefer SerpApi when a key is actually configured
+        # in the environment, otherwise fall back to a self-hosted SearXNG.
+        provider_name = "serpapi" if os.environ.get("SERPAPI_API_KEY") else "searxng"
+
     provider_cls = _PROVIDERS.get(provider_name)
     if provider_cls is None:
         raise ValueError(
             f"Unknown search provider {provider_name!r}. Available: {sorted(_PROVIDERS)}"
         )
 
-    url = params.get("url")
-    if not url:
-        raise ValueError(f"Missing 'url' parameter for provider {provider_name!r}")
-
-    timeout = params.get("timeout", 10.0)
-    engine = provider_cls(url=url, timeout=timeout)
-    return [WebSearchTool(engine), FetchPageTool(timeout=timeout)]
+    engine = provider_cls.from_config(params)
+    return [WebSearchTool(engine), FetchPageTool(timeout=params.get("timeout", 10.0))]
