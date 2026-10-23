@@ -227,10 +227,27 @@ async def test_build_agent_real_config_with_fake_llm():
     agent = await build_agent("config/agent.yaml", ui, llm=llm, stores=InMemoryStores())
 
     assert "calculator" in agent.tools
+    assert "read_file" in agent.tools
+    assert "list_dir" in agent.tools
+    assert "write_file" in agent.tools
     assert len(agent.pipeline) == 3
     assert isinstance(agent.pipeline[0], PersistNode)
     assert isinstance(agent.pipeline[1], ContextBuilderNode)
     assert isinstance(agent.pipeline[2], ReActLoopNode)
+
+
+@pytest.mark.usefixtures("no_mcp")
+async def test_write_file_requires_approval_in_real_config():
+    from tools.approved_tool import ApprovedTool
+
+    # The real config's `context` entry enables the `fewshot` section, which
+    # requires an embedder (see `test_build_agent_real_config_with_fake_llm`).
+    llm = FakeLLM([])
+    llm.embedder = FakeEmbedder()
+    agent = await build_agent("config/agent.yaml", _NoopUI(), llm=llm, stores=InMemoryStores())
+    assert isinstance(agent.tools["write_file"], ApprovedTool)
+    assert not isinstance(agent.tools["read_file"], ApprovedTool)
+    assert not isinstance(agent.tools["list_dir"], ApprovedTool)
 
 
 @pytest.mark.usefixtures("no_mcp")

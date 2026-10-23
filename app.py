@@ -51,7 +51,9 @@ from storage.vector_storage import SqliteVectorStorage
 from tools.approved_tool import ApprovedTool
 from tools.ask_user_tool import AskUserTool
 from tools.calculator import CalculatorTool
+from tools.file_tool import ListDirTool, PermissionPolicy, ReadFileTool, WriteFileTool
 from tools.mcp_adapter import MCPToolAdapter, connect_servers
+from tools.web_search import build_web_tools
 
 ROOT = "root"  # sentinel `parent_id`: fork under the session root (no parent)
 
@@ -77,6 +79,7 @@ class Deps:
     config_dir: Path = Path("config")
     persona: str = "default"
     prompt_version: str | None = None
+    permissions: PermissionPolicy | None = None
 
 
 def flatten(items: Iterable[ITool | list[ITool]]) -> list[ITool]:
@@ -99,6 +102,10 @@ NODES: dict[str, Callable[[dict, Deps], PipelineNode]] = {
 TOOLS: dict[str, Callable[[dict, Deps], ITool | list[ITool]]] = {
     "calculator": CalculatorTool.from_config,
     "ask_user": AskUserTool.from_config,
+    "read_file": ReadFileTool.from_config,
+    "list_dir": ListDirTool.from_config,
+    "write_file": WriteFileTool.from_config,
+    "web_search": build_web_tools,
 }
 
 
