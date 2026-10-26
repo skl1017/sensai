@@ -52,6 +52,7 @@ class AgentConfig:
     """Validated content of `agent.yaml`. `pipeline`/`tools` are `(name, params)` pairs."""
 
     llm: LLMConfig
+    reranker: dict[str, Any] | None = None
     persona: str = "default"
     prompt_version: str | None = None
     pipeline: list[tuple[str, dict]] = field(default_factory=list)
@@ -158,7 +159,16 @@ def parse_config(data: Any) -> AgentConfig:
         raise ConfigError("config: expected a mapping at the top level")
     _check_keys(
         data,
-        {"llm", "persona", "prompt_version", "pipeline", "tools", "approval", "mcp_servers"},
+        {
+            "llm",
+            "reranker",
+            "persona",
+            "prompt_version",
+            "pipeline",
+            "tools",
+            "approval",
+            "mcp_servers",
+        },
         "",
     )
     persona = data.get("persona") or "default"
@@ -167,9 +177,13 @@ def parse_config(data: Any) -> AgentConfig:
     prompt_version = data.get("prompt_version")
     if prompt_version is not None:
         prompt_version = str(prompt_version)
+    reranker = data.get("reranker")
+    if reranker is not None and not isinstance(reranker, dict):
+        raise ConfigError(f"reranker: expected a mapping, got {type(reranker).__name__}")
 
     return AgentConfig(
         llm=_parse_llm(data.get("llm")),
+        reranker=reranker,
         persona=persona,
         prompt_version=prompt_version,
         pipeline=[normalize(e, f"pipeline[{i}]") for i, e in enumerate(_list(data, "pipeline"))],

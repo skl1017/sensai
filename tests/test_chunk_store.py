@@ -82,8 +82,8 @@ async def test_search_converts_distance_to_similarity(engine):
 
     results = await store.search([1.0] * DIM, k=2)
 
-    # Cosine : similarité = 1 - distance, donc le plus proche a le meilleur score
-    assert [score for _, score in results] == pytest.approx([0.9, 0.4])
+    # L2 sur vecteurs unitaires : similarité = 1 - d² / 2, le plus proche a le meilleur score
+    assert [score for _, score in results] == pytest.approx([0.995, 0.82])
 
 
 @pytest.mark.asyncio

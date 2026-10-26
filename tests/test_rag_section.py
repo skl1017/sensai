@@ -208,12 +208,113 @@ def test_default_priority_sits_between_fewshot_and_persona(embedder):
     assert 40 < section.priority < 100
 
 
+# ---------- rerank ----------
+
+
+class FakeReranker:
+    """IReranker double: returns preset scores (or raises) and records calls."""
+
+    def __init__(self, scores=None, error=None):
+        self.scores = scores
+        self.error = error
+        self.calls: list[tuple[str, list[str]]] = []
+
+    async def rerank(self, query, passages):
+        self.calls.append((query, list(passages)))
+        if self.error is not None:
+            raise self.error
+        return self.scores
+
+
+def three_hits():
+    return [
+        (make_chunk("a", "texte a"), 0.9),
+        (make_chunk("b", "texte b"), 0.8),
+        (make_chunk("c", "texte c"), 0.7),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_rerank_reorders_by_reranker_score(embedder):
+    reranker = FakeReranker([0.2, 0.9, 0.6])
+    section, _ = make_section(embedder, hits=three_hits(), reranker=reranker)
+    ctx = make_ctx()
+
+    await section.build(ctx)
+
+    assert [c["chunk_id"] for c in ctx.state["retrieved_chunks"]] == ["b", "c", "a"]
+    assert [c["score"] for c in ctx.state["retrieved_chunks"]] == [0.9, 0.6, 0.2]
+
+
+@pytest.mark.asyncio
+async def test_rerank_receives_query_and_passage_texts(embedder):
+    reranker = FakeReranker([0.5, 0.5, 0.5])
+    section, _ = make_section(embedder, hits=three_hits(), reranker=reranker)
+
+    await section.build(make_ctx("et ses compétences ?", query="compétences de Loan"))
+
+    assert reranker.calls == [("compétences de Loan", ["texte a", "texte b", "texte c"])]
+
+
+@pytest.mark.asyncio
+async def test_rerank_drops_hits_below_rerank_min_score(embedder):
+    reranker = FakeReranker([0.1, 0.2, 0.3])
+    section, _ = make_section(embedder, hits=three_hits(), reranker=reranker, rerank_min_score=0.5)
+    ctx = make_ctx()
+
+    assert await section.build(ctx) is None
+    assert "retrieved_chunks" not in ctx.state
+
+
+@pytest.mark.asyncio
+async def test_rerank_failure_falls_back_to_vector_order(embedder):
+    reranker = FakeReranker(error=RuntimeError("model download failed"))
+    section, _ = make_section(embedder, hits=three_hits(), reranker=reranker, rerank_min_score=0.95)
+    ctx = make_ctx()
+
+    await section.build(ctx)
+
+    assert [c["chunk_id"] for c in ctx.state["retrieved_chunks"]] == ["a", "b", "c"]
+    assert [c["score"] for c in ctx.state["retrieved_chunks"]] == [0.9, 0.8, 0.7]
+
+
+@pytest.mark.asyncio
+async def test_rerank_skipped_when_min_score_leaves_no_hit(embedder):
+    reranker = FakeReranker([])
+    section, _ = make_section(embedder, hits=three_hits(), reranker=reranker, min_score=0.95)
+
+    assert await section.build(make_ctx()) is None
+    assert reranker.calls == []
+
+
+@pytest.mark.asyncio
+async def test_top_k_keeps_best_hits_after_rerank(embedder):
+    reranker = FakeReranker([0.6, 0.9, 0.8])
+    section, _ = make_section(embedder, hits=three_hits(), reranker=reranker, top_k=2)
+    ctx = make_ctx()
+
+    await section.build(ctx)
+
+    assert [c["chunk_id"] for c in ctx.state["retrieved_chunks"]] == ["b", "c"]
+
+
+@pytest.mark.asyncio
+async def test_top_k_without_rerank_cuts_vector_order(embedder):
+    section, _ = make_section(embedder, hits=three_hits(), top_k=1)
+    ctx = make_ctx()
+
+    await section.build(ctx)
+
+    assert [c["chunk_id"] for c in ctx.state["retrieved_chunks"]] == ["a"]
+
+
 # ---------- from_config ----------
 
 
-def make_deps(embedder="default", chunk_store="default"):
+def make_deps(embedder="default", chunk_store="default", reranker=None):
     return SimpleNamespace(
         embedder=FakeEmbedder() if embedder == "default" else embedder,
+        reranker=reranker,
         stores=SimpleNamespace(
             chunk_store=FakeChunkStore() if chunk_store == "default" else chunk_store
         ),
@@ -221,26 +322,45 @@ def make_deps(embedder="default", chunk_store="default"):
 
 
 def test_from_config_wires_deps_and_params():
-    deps = make_deps()
+    deps = make_deps(reranker=FakeReranker())
 
-    section = RAGSection.from_config({"k": 6, "min_score": 0.3}, deps)
+    section = RAGSection.from_config(
+        {"k": 6, "min_score": 0.3, "rerank": True, "rerank_min_score": 0.7, "top_k": 3}, deps
+    )
 
     assert section.embedder is deps.embedder
     assert section.chunk_store is deps.stores.chunk_store
     assert section.k == 6
     assert section.min_score == 0.3
+    assert section.reranker is deps.reranker
+    assert section.rerank_min_score == 0.7
+    assert section.top_k == 3
 
 
 def test_from_config_uses_defaults_when_params_empty():
     section = RAGSection.from_config({}, make_deps())
 
-    assert section.k == 4
+    assert section.k == 20
     assert section.min_score == 0.0
+    assert section.reranker is None
+    assert section.rerank_min_score == 0.0
+    assert section.top_k is None
+
+
+def test_from_config_ignores_deps_reranker_without_rerank_flag():
+    section = RAGSection.from_config({}, make_deps(reranker=FakeReranker()))
+
+    assert section.reranker is None
+
+
+def test_from_config_rerank_without_reranker_raises():
+    with pytest.raises(ValueError, match="reranker"):
+        RAGSection.from_config({"rerank": True}, make_deps())
 
 
 def test_from_config_unknown_param_raises():
     with pytest.raises(ValueError, match="Unknown RAGSection param"):
-        RAGSection.from_config({"top_k": 3}, make_deps())
+        RAGSection.from_config({"candidates": 3}, make_deps())
 
 
 def test_from_config_requires_embedder():
