@@ -7,6 +7,7 @@ Généré par `python -m eval.bench`. Médianes sur les runs mesurés (p95 entre
 | Machine | CPU | Cœurs | RAM (Go) | GPU | Ollama | Date |
 |---|---|---|---|---|---|---|
 | sch-Vivobook-Go-E1404FA-E1404FA | AMD Ryzen 5 7520U with Radeon Graphics | 8 | 16.0 | — | 0.34.4 | 2026-10-27 |
+| zen | AMD Ryzen 7 7735U with Radeon Graphics | 16 | 16.0 | — | 0.34.4 | 2026-10-27 |
 
 ## Résultats
 
@@ -15,3 +16,6 @@ Généré par `python -m eval.bench`. Médianes sur les runs mesurés (p95 entre
 | sch-Vivobook-Go-E1404FA-E1404FA | qwen2.5:3b | short | 8.9 | 599 (685) | 8868 (9530) | 9 (9) | 49 (52) | 2.4 | 0.0 | 0 |
 | sch-Vivobook-Go-E1404FA-E1404FA | qwen2.5:3b | long | 8.9 | 55378 (55956) | 70807 (71477) | 8 (8) | 41 (41) | 2.4 | 0.0 | 0 |
 | sch-Vivobook-Go-E1404FA-E1404FA | qwen2.5:3b | tool | 8.9 | 7320 (7368) | 7537 (7597) | 9 (9) | 47 (48) | 2.4 | 0.0 | 0 |
+| zen | qwen2.5:3b | short | 4.6 | 268 (316) | 4610 (5225) | 17 (18) | 111 (124) | 2.4 | 0.0 | 0 |
+| zen | qwen2.5:3b | long | 4.6 | 25827 (26551) | 34696 (35460) | 14 (15) | 88 (94) | 2.4 | 0.0 | 0 |
+| zen | qwen2.5:3b | tool | 4.6 | 3621 (3847) | 3736 (3962) | 18 (18) | 101 (102) | 2.4 | 0.0 | 0 |
