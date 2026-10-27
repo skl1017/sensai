@@ -8,5 +8,8 @@ data/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
+build/
+dist/
 !.env.example
 .docs/
+node_modules/

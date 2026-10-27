@@ -4,12 +4,25 @@ from __future__ import annotations
 
 import pytest
 
-from app import NODES, ROOT, TOOLS, Deps, build_agent, build_llm, chat_turn, flatten, normalize
+from app import (
+    NODES,
+    ROOT,
+    TOOLS,
+    Deps,
+    build_agent,
+    build_llm,
+    build_reranker,
+    chat_turn,
+    flatten,
+    normalize,
+)
 from core.node import PipelineNode
+from llm.cross_encoder import DEFAULT_MODEL, FastEmbedReranker
 from llm.ollama import Ollama, OllamaEmbedder
 from nodes.context_builder import ContextBuilderNode
 from nodes.persist_node import PersistNode
 from nodes.react_loop import ReActLoopNode
+from nodes.reranker import LLMReranker
 from storage.memory_db import MemoryDB
 from storage.stores import InMemoryStores
 from tests.fakes import FakeEmbedder, FakeLLM, FakeTool
@@ -89,6 +102,49 @@ def test_build_llm_rejects_missing_provider():
         build_llm({"model": "qwen2.5:3b"})
 
 
+# --- build_reranker ------------------------------------------------------------
+
+
+def test_build_reranker_absent_section_returns_none():
+    assert build_reranker(None, FakeLLM([])) is None
+
+
+def test_build_reranker_defaults_to_fastembed_jina():
+    reranker = build_reranker({}, FakeLLM([]))
+
+    assert isinstance(reranker, FastEmbedReranker)
+    assert reranker.model == DEFAULT_MODEL
+
+
+def test_build_reranker_forwards_fastembed_params():
+    reranker = build_reranker(
+        {"provider": "fastembed", "model": "BAAI/bge-reranker-base", "cache_dir": "m"},
+        FakeLLM([]),
+    )
+
+    assert reranker.model == "BAAI/bge-reranker-base"
+    assert reranker.cache_dir == "m"
+
+
+def test_build_reranker_llm_provider_uses_given_llm():
+    llm = FakeLLM([])
+
+    reranker = build_reranker({"provider": "llm"}, llm)
+
+    assert isinstance(reranker, LLMReranker)
+    assert reranker.llm is llm
+
+
+def test_build_reranker_llm_provider_rejects_params():
+    with pytest.raises(ValueError, match="model"):
+        build_reranker({"provider": "llm", "model": "x"}, FakeLLM([]))
+
+
+def test_build_reranker_rejects_unknown_provider():
+    with pytest.raises(ValueError, match="cohere"):
+        build_reranker({"provider": "cohere"}, FakeLLM([]))
+
+
 # --- build_agent -------------------------------------------------------------
 
 
@@ -148,6 +204,7 @@ async def test_build_agent_unknown_tool_raises():
             await build_agent(str(cfg_path), _NoopUI(), llm=FakeLLM([]))
 
 
+@pytest.mark.usefixtures("no_mcp")
 async def test_build_agent_real_config_with_fake_llm():
     # Explicit in-memory stores: the real config's `persist`/`context` entries
     # point at `sessions/`/`data/profile.yaml`, and this test must never write there.
@@ -162,12 +219,32 @@ async def test_build_agent_real_config_with_fake_llm():
     agent = await build_agent("config/agent.yaml", ui, llm=llm, stores=stores)
 
     assert "calculator" in agent.tools
+    assert "read_file" in agent.tools
+    assert "list_dir" in agent.tools
+    assert "write_file" in agent.tools
     assert len(agent.pipeline) == 3
     assert isinstance(agent.pipeline[0], PersistNode)
     assert isinstance(agent.pipeline[1], ContextBuilderNode)
     assert isinstance(agent.pipeline[2], ReActLoopNode)
 
 
+@pytest.mark.usefixtures("no_mcp")
+async def test_write_file_requires_approval_in_real_config():
+    from tools.approved_tool import ApprovedTool
+
+    # The real config's `context` entry enables the `fewshot` section, which
+    # requires an embedder (see `test_build_agent_real_config_with_fake_llm`).
+    llm = FakeLLM([])
+    llm.embedder = FakeEmbedder()
+    agent = await build_agent(
+        "config/agent.yaml", _NoopUI(), llm=llm, stores=InMemoryStores(memory_db=MemoryDB())
+    )
+    assert isinstance(agent.tools["write_file"], ApprovedTool)
+    assert not isinstance(agent.tools["read_file"], ApprovedTool)
+    assert not isinstance(agent.tools["list_dir"], ApprovedTool)
+
+
+@pytest.mark.usefixtures("no_mcp")
 async def test_build_agent_real_config_end_to_end_chat_turn():
     """One full turn against the real `config/agent.yaml`: persona, profile and
     fewshot sections, budget pass, react loop -- everything wired, nothing real."""

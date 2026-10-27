@@ -17,7 +17,12 @@ import json
 from core.tool import ITool
 from core.ui import UserInterface
 
-REFUSAL = "Action refusée par l'utilisateur. Propose une alternative ou demande-lui."
+REFUSAL = (
+    "Action refused by the user (their own choice, not a technical error: "
+    "neither the file nor the arguments are at fault). Ask them why or what "
+    "they'd prefer instead. Don't invent a technical cause or a workaround "
+    "(a different filename, etc.) unless they ask for one."
+)
 
 
 class ApprovedTool(ITool):

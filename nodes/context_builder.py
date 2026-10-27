@@ -45,6 +45,7 @@ from nodes.fewshot_section import FewShotSection
 from nodes.memory_section import MemorySection
 from nodes.persona_section import PersonaSection
 from nodes.query_rewriter import rewrite_query
+from nodes.rag_section import RAGSection
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +53,9 @@ logger = logging.getLogger(__name__)
 # story that will add them.
 _UNAVAILABLE_SECTIONS = {
     "artifact": "Story 15",
-    "rag": "Story 11",
 }
 
-_KNOWN_PARAMS = {"sections", "profile_path", "budget", "rewrite_query", "fewshot", "memory"}
+_KNOWN_PARAMS = {"sections", "profile_path", "budget", "rewrite_query", "fewshot", "memory", "rag"}
 _BUDGET_KEYS = {"reserve_output", "trigger_ratio", "keep_last_turns"}
 
 
@@ -154,7 +154,11 @@ class ContextBuilderNode(PipelineNode):
         names = params.get("sections", ["profile"])
         fewshot_params = params.get("fewshot", {})
         memory_params = params.get("memory", {})
-        sections = [cls._build_section(name, fewshot_params, memory_params, deps) for name in names]
+        rag_params = params.get("rag", {})
+        sections = [
+            cls._build_section(name, fewshot_params, memory_params, rag_params, deps)
+            for name in names
+        ]
 
         budget = params.get("budget")
         if budget is not None:
@@ -168,7 +172,7 @@ class ContextBuilderNode(PipelineNode):
 
     @staticmethod
     def _build_section(
-        name: str, fewshot_params: dict, memory_params: dict, deps
+        name: str, fewshot_params: dict, memory_params: dict, rag_params: dict, deps
     ) -> ContextSection:
         if name == "profile":
             return ProfileSection(deps.stores.profile)
@@ -178,6 +182,8 @@ class ContextBuilderNode(PipelineNode):
             return FewShotSection.from_config(fewshot_params, deps)
         if name == "memory":
             return MemorySection.from_config(memory_params, deps)
+        if name == "rag":
+            return RAGSection.from_config(rag_params, deps)
         if name in _UNAVAILABLE_SECTIONS:
             story = _UNAVAILABLE_SECTIONS[name]
             raise ValueError(f"Context section {name!r} is not available yet ({story})")

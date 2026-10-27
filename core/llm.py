@@ -1,8 +1,9 @@
-"""LLM and embedder interfaces.
+"""LLM, embedder and reranker interfaces.
 
 `ILLM` is the contract the rest of the pipeline expects from a language
-model backend, `IEmbedder` the contract for a text-embedding backend.
-Neither interface imports a concrete backend: adapters (e.g. `llm/ollama.py`)
+model backend, `IEmbedder` the contract for a text-embedding backend,
+`IReranker` the contract for a passage reranker (cross-encoder or LLM judge).
+None of these interfaces imports a concrete backend: adapters (e.g. `llm/ollama.py`)
 implement these interfaces and are injected into the `Agent`.
 
 Contracts
@@ -55,6 +56,18 @@ class ILLM(ABC):
 class IEmbedder(ABC):
     @abstractmethod
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
+
+
+class IReranker(ABC):
+    """Grades passages against a query (R2).
+
+    `rerank` returns one relevance score in [0, 1] per passage, in input
+    order (higher is more relevant), and raises on failure: the caller
+    decides how to fall back.
+    """
+
+    @abstractmethod
+    async def rerank(self, query: str, passages: list[str]) -> list[float]: ...
 
 
 class LLMError(Exception):

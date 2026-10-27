@@ -166,6 +166,7 @@ async def test_failing_search_is_skipped_by_context_builder():
     assert all(m.role != "system" for m in ctx.messages)
 
 
+@pytest.mark.usefixtures("no_mcp")
 async def test_fact_saved_in_one_session_is_recalled_in_the_next():
     cfg = "config/agent.yaml"
     db = MemoryDB()

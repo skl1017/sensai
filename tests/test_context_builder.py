@@ -258,7 +258,7 @@ def test_from_config_unknown_section_name_raises():
         ContextBuilderNode.from_config({"sections": ["bogus"]}, _Deps())
 
 
-@pytest.mark.parametrize(("name", "story"), [("artifact", "Story 15"), ("rag", "Story 11")])
+@pytest.mark.parametrize(("name", "story"), [("artifact", "Story 15")])
 def test_from_config_unimplemented_sections_raise_not_available_yet(name, story):
     with pytest.raises(ValueError, match=story):
         ContextBuilderNode.from_config({"sections": [name]}, _Deps())

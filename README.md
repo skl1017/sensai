@@ -11,6 +11,7 @@ pipeline node or a tool. The full architecture is documented in the project wiki
 python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
 .venv/bin/pip install -e ".[dev]"
+.venv/bin/pip install -e '.[rerank]'
 ```
 
 Runtime and dev dependencies are declared in `pyproject.toml` (the `dev` extra adds

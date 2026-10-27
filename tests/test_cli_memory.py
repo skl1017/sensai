@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 
+import pytest
+
 from app import build_agent
 from core.types import ToolCall
 from storage.memory_db import MemoryDB
@@ -11,6 +13,8 @@ from storage.stores import InMemoryStores
 from tests.fakes import FakeEmbedder, FakeLLM
 from tests.test_cli import scripted_read_line
 from ui.cli import CliUI, run_cli
+
+pytestmark = pytest.mark.usefixtures("no_mcp")
 
 SAVE = ToolCall(
     id="1",

@@ -44,6 +44,7 @@ class McpServerConfig:
     command: str
     args: list[str] = field(default_factory=list)
     read_only: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -51,6 +52,7 @@ class AgentConfig:
     """Validated content of `agent.yaml`. `pipeline`/`tools` are `(name, params)` pairs."""
 
     llm: LLMConfig
+    reranker: dict[str, Any] | None = None
     persona: str = "default"
     prompt_version: str | None = None
     pipeline: list[tuple[str, dict]] = field(default_factory=list)
@@ -108,6 +110,16 @@ def _str_list(value: Any, where: str) -> list[str]:
     return list(value)
 
 
+def _str_dict(value: Any, where: str) -> dict[str, str]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in value.items()
+    ):
+        raise ConfigError(f"{where}: expected a mapping of strings")
+    return dict(value)
+
+
 def _parse_llm(raw: Any) -> LLMConfig:
     if raw is None:
         raise ConfigError("llm: required")
@@ -128,7 +140,7 @@ def _parse_llm(raw: Any) -> LLMConfig:
 def _parse_mcp_server(raw: Any, where: str) -> McpServerConfig:
     if not isinstance(raw, dict):
         raise ConfigError(f"{where}: expected a mapping, got {type(raw).__name__}")
-    _check_keys(raw, {"name", "command", "args", "read_only"}, where)
+    _check_keys(raw, {"name", "command", "args", "read_only", "env"}, where)
     for key in ("name", "command"):
         if not isinstance(raw.get(key), str) or not raw[key]:
             raise ConfigError(f"{where}.{key}: required")
@@ -137,6 +149,7 @@ def _parse_mcp_server(raw: Any, where: str) -> McpServerConfig:
         command=raw["command"],
         args=_str_list(raw.get("args"), f"{where}.args"),
         read_only=_str_list(raw.get("read_only"), f"{where}.read_only"),
+        env=_str_dict(raw.get("env"), f"{where}.env"),
     )
 
 
@@ -146,7 +159,16 @@ def parse_config(data: Any) -> AgentConfig:
         raise ConfigError("config: expected a mapping at the top level")
     _check_keys(
         data,
-        {"llm", "persona", "prompt_version", "pipeline", "tools", "approval", "mcp_servers"},
+        {
+            "llm",
+            "reranker",
+            "persona",
+            "prompt_version",
+            "pipeline",
+            "tools",
+            "approval",
+            "mcp_servers",
+        },
         "",
     )
     persona = data.get("persona") or "default"
@@ -155,9 +177,13 @@ def parse_config(data: Any) -> AgentConfig:
     prompt_version = data.get("prompt_version")
     if prompt_version is not None:
         prompt_version = str(prompt_version)
+    reranker = data.get("reranker")
+    if reranker is not None and not isinstance(reranker, dict):
+        raise ConfigError(f"reranker: expected a mapping, got {type(reranker).__name__}")
 
     return AgentConfig(
         llm=_parse_llm(data.get("llm")),
+        reranker=reranker,
         persona=persona,
         prompt_version=prompt_version,
         pipeline=[normalize(e, f"pipeline[{i}]") for i, e in enumerate(_list(data, "pipeline"))],
