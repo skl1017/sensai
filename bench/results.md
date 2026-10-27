@@ -1,18 +1,18 @@
-# Benchmarks locaux des modèles
+# Benchmarks locaux des modÃ¨les
 
-Généré par `python -m eval.bench`. Médianes sur les runs mesurés (p95 entre parenthèses).
+GÃ©nÃ©rÃ© par `python -m eval.bench`. MÃ©dianes sur les runs mesurÃ©s (p95 entre parenthÃ¨ses).
 
 ## Machines
 
-| Machine | CPU | Cœurs | RAM (Go) | GPU | Ollama | Date |
+| Machine | CPU | CÅ“urs | RAM (Go) | GPU | Ollama | Date |
 |---|---|---|---|---|---|---|
-| DESKTOP-V6CATDH | AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD | 16 | — | NVIDIA GeForce RTX 5080, 16303 MiB | 0.40.11 | 2026-10-27 |
-| sch-Vivobook-Go-E1404FA-E1404FA | AMD Ryzen 5 7520U with Radeon Graphics | 8 | 16.0 | — | 0.34.4 | 2026-10-27 |
-| zen | AMD Ryzen 7 7735U with Radeon Graphics | 16 | 16.0 | — | 0.34.4 | 2026-10-27 |
+| DESKTOP-V6CATDH | AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD | 16 | â€” | NVIDIA GeForce RTX 5080, 16303 MiB | 0.40.11 | 2026-10-27 |
+| sch-Vivobook-Go-E1404FA-E1404FA | AMD Ryzen 5 7520U with Radeon Graphics | 8 | 16.0 | â€” | 0.34.4 | 2026-10-27 |
+| zen | AMD Ryzen 7 7735U with Radeon Graphics | 16 | 16.0 | â€” | 0.34.4 | 2026-10-27 |
 
-## Résultats
+## RÃ©sultats
 
-| Machine | Modèle | Prompt | Load (s) | TTFT (ms) | Latence (ms) | Gen tok/s | Prompt tok/s | Taille (Go) | VRAM (Go) | % GPU |
+| Machine | ModÃ¨le | Prompt | Load (s) | TTFT (ms) | Latence (ms) | Gen tok/s | Prompt tok/s | Taille (Go) | VRAM (Go) | % GPU |
 |---|---|---|---|---|---|---|---|---|---|---|
 | DESKTOP-V6CATDH | qwen2.5:3b | short | 16.1 | 24 (28) | 410 (476) | 255 (257) | 2121 (2477) | 2.4 | 2.4 | 100 |
 | DESKTOP-V6CATDH | qwen2.5:3b | long | 16.1 | 203 (248) | 711 (772) | 244 (245) | 15248 (15510) | 2.4 | 2.4 | 100 |

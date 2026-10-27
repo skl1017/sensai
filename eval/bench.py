@@ -327,7 +327,7 @@ def render_report(results: list[dict]) -> str:
 def write_report(out_dir: Path) -> Path:
     results = [json.loads(p.read_text()) for p in sorted(out_dir.glob("*.json"))]
     path = out_dir / "results.md"
-    path.write_text(render_report(results))
+    path.write_text(render_report(results), encoding="utf-8")
     return path
 
 
