@@ -103,3 +103,73 @@ def test_reranker_section_is_kept_as_mapping(tmp_path):
 def test_reranker_section_must_be_mapping(tmp_path):
     with pytest.raises(ConfigError, match="reranker"):
         _load(tmp_path, "llm: {model: m}\nreranker: fastembed\n")
+
+
+def test_agents_default_to_empty(tmp_path):
+    assert _load(tmp_path, "llm: {model: m}\n").agents == []
+
+
+def test_agents_entry_parsed(tmp_path):
+    cfg = _load(
+        tmp_path,
+        "llm: {model: m}\n"
+        "agents:\n"
+        "  - {name: researcher, config: agents/r.yaml, description: Cherche., max_depth: 1,"
+        " max_calls: 2, timeout: 60}\n",
+    )
+    (entry,) = cfg.agents
+    assert (entry.name, entry.config, entry.description) == (
+        "researcher",
+        "agents/r.yaml",
+        "Cherche.",
+    )
+    assert (entry.max_depth, entry.max_calls, entry.timeout) == (1, 2, 60)
+
+
+def test_agents_guards_default_to_none(tmp_path):
+    cfg = _load(tmp_path, "llm: {model: m}\nagents: [{name: r, config: r.yaml, description: d}]\n")
+    assert (cfg.agents[0].max_depth, cfg.agents[0].max_calls, cfg.agents[0].timeout) == (
+        None,
+        None,
+        None,
+    )
+
+
+@pytest.mark.parametrize("missing", ["name", "config", "description"])
+def test_agents_entry_requires_key(tmp_path, missing):
+    entry = {"name": "r", "config": "r.yaml", "description": "d"}
+    del entry[missing]
+    body = ", ".join(f"{k}: {v}" for k, v in entry.items())
+    with pytest.raises(ConfigError, match=rf"agents\[0\]\.{missing}: required"):
+        _load(tmp_path, f"llm: {{model: m}}\nagents: [{{{body}}}]\n")
+
+
+@pytest.mark.parametrize(
+    "bad", ["max_depth: 0", "max_calls: -1", "timeout: true", "max_depth: 1.5"]
+)
+def test_agents_guards_must_be_positive(tmp_path, bad):
+    with pytest.raises(ConfigError, match="positive number"):
+        _load(
+            tmp_path,
+            f"llm: {{model: m}}\nagents: [{{name: r, config: r.yaml, description: d, {bad}}}]\n",
+        )
+
+
+def test_agents_entry_rejects_unknown_key(tmp_path):
+    with pytest.raises(ConfigError, match="unknown key"):
+        _load(
+            tmp_path, "llm: {model: m}\nagents: [{name: r, config: r.yaml, description: d, x: 1}]\n"
+        )
+
+
+def test_full_example_declares_tutor_sub_agent():
+    cfg = load_config(CONFIG_DIR / "agent.full.example.yaml")
+    assert [a.name for a in cfg.agents] == ["tutor"]
+    assert (CONFIG_DIR / cfg.agents[0].config).is_file()
+
+
+def test_tutor_sub_agent_config_loads():
+    cfg = load_config(CONFIG_DIR / "agents" / "tutor.yaml")
+    assert cfg.persona == "tutor"
+    assert [name for name, _ in cfg.pipeline] == ["context", "react"]
+    assert cfg.tools == [("calculator", {})]
