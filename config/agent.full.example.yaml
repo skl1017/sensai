@@ -30,7 +30,7 @@ tools:
   - web_search: { provider: searxng, url: http://localhost:8080 }
   - run_python: { backend: docker, image: python:3.12-slim }
   - ask_user
-  - memory:     { db: data/memory.db }
+  - memory
 
 approval:                        # tools enveloppés par ApprovedTool (A3), motifs fnmatch
   - write_file

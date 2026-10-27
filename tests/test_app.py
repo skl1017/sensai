@@ -25,6 +25,7 @@ from nodes.context_builder import ContextBuilderNode
 from nodes.persist_node import PersistNode
 from nodes.react_loop import ReActLoopNode
 from nodes.reranker import LLMReranker
+from storage.memory_db import MemoryDB
 from storage.stores import InMemoryStores
 from tests.fakes import FakeEmbedder, FakeLLM, FakeTool
 from tools.agent_tool import AgentTool, SubAgentUI
@@ -206,16 +207,6 @@ async def test_build_agent_unknown_tool_raises():
             await build_agent(str(cfg_path), _NoopUI(), llm=FakeLLM([]))
 
 
-@pytest.fixture
-def no_mcp(monkeypatch):
-    """The real config declares an `npx` MCP server: never spawn it in unit tests."""
-
-    async def _no_servers(configs, stack, **_):
-        return []
-
-    monkeypatch.setattr("app.connect_servers", _no_servers)
-
-
 @pytest.mark.usefixtures("no_mcp")
 async def test_build_agent_real_config_with_fake_llm():
     # Explicit in-memory stores: the real config's `persist`/`context` entries
@@ -227,7 +218,8 @@ async def test_build_agent_real_config_with_fake_llm():
     ui = _NoopUI()
     llm = FakeLLM(["hi"])
     llm.embedder = FakeEmbedder()
-    agent = await build_agent("config/agent.yaml", ui, llm=llm, stores=InMemoryStores())
+    stores = InMemoryStores(memory_db=MemoryDB())
+    agent = await build_agent("config/agent.yaml", ui, llm=llm, stores=stores)
 
     assert "calculator" in agent.tools
     assert "read_file" in agent.tools
@@ -247,7 +239,9 @@ async def test_write_file_requires_approval_in_real_config():
     # requires an embedder (see `test_build_agent_real_config_with_fake_llm`).
     llm = FakeLLM([])
     llm.embedder = FakeEmbedder()
-    agent = await build_agent("config/agent.yaml", _NoopUI(), llm=llm, stores=InMemoryStores())
+    agent = await build_agent(
+        "config/agent.yaml", _NoopUI(), llm=llm, stores=InMemoryStores(memory_db=MemoryDB())
+    )
     assert isinstance(agent.tools["write_file"], ApprovedTool)
     assert not isinstance(agent.tools["read_file"], ApprovedTool)
     assert not isinstance(agent.tools["list_dir"], ApprovedTool)
@@ -260,7 +254,7 @@ async def test_build_agent_real_config_end_to_end_chat_turn():
     ui = _NoopUI()
     llm = FakeLLM(["hi there"])
     llm.embedder = FakeEmbedder()
-    stores = InMemoryStores()
+    stores = InMemoryStores(memory_db=MemoryDB())
     agent = await build_agent("config/agent.yaml", ui, llm=llm, stores=stores)
 
     ctx = await chat_turn(agent, stores, "s1", "hello")

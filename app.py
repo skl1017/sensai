@@ -48,6 +48,7 @@ from nodes.react_loop import ReActLoopNode
 from nodes.reranker import LLMReranker
 from storage.chunk_store import ChunkStore
 from storage.conversation import ConversationStore
+from storage.memory_db import MemoryDB
 from storage.profile import ProfileStore
 from storage.stores import InMemoryStores, Stores
 from storage.vector_storage import SqliteVectorStorage
@@ -57,6 +58,7 @@ from tools.ask_user_tool import AskUserTool
 from tools.calculator import CalculatorTool
 from tools.file_tool import ListDirTool, PermissionPolicy, ReadFileTool, WriteFileTool
 from tools.mcp_adapter import MCPToolAdapter, connect_servers
+from tools.memory_tool import from_config as memory_tools_from_config
 from tools.web_search import build_web_tools
 
 ROOT = "root"  # sentinel `parent_id`: fork under the session root (no parent)
@@ -106,6 +108,7 @@ NODES: dict[str, Callable[[dict, Deps], PipelineNode]] = {
 TOOLS: dict[str, Callable[[dict, Deps], ITool | list[ITool]]] = {
     "calculator": CalculatorTool.from_config,
     "ask_user": AskUserTool.from_config,
+    "memory": memory_tools_from_config,
     "read_file": ReadFileTool.from_config,
     "list_dir": ListDirTool.from_config,
     "write_file": WriteFileTool.from_config,
@@ -184,11 +187,19 @@ def _stores_from_config(cfg: AgentConfig) -> InMemoryStores:
     if context_params is not None:
         profile = ProfileStore(context_params.get("profile_path", "data/profile.yaml"))
 
+    # `memory` tool entry: the long-term memory lives in the shared engine (config/db/db.py).
+    memory_db = MemoryDB(db.engine) if any(name == "memory" for name, _ in cfg.tools) else None
+
     chunk_store = ChunkStore(
         db.engine,
         SqliteVectorStorage(db.engine),
     )
-    return InMemoryStores(conversation=conversation, profile=profile, chunk_store=chunk_store)
+    return InMemoryStores(
+        conversation=conversation,
+        profile=profile,
+        memory_db=memory_db,
+        chunk_store=chunk_store,
+    )
 
 
 async def open_stores(cfg_path: str) -> InMemoryStores:

@@ -207,8 +207,9 @@ async def test_profile_reinjected_every_turn_through_agent():
 
 
 class _Stores:
-    def __init__(self, profile) -> None:
+    def __init__(self, profile, memory_db=None) -> None:
         self.profile = profile
+        self.memory_db = memory_db
 
 
 class _Deps:
@@ -257,7 +258,7 @@ def test_from_config_unknown_section_name_raises():
         ContextBuilderNode.from_config({"sections": ["bogus"]}, _Deps())
 
 
-@pytest.mark.parametrize(("name", "story"), [("memory", "Story 10"), ("artifact", "Story 15")])
+@pytest.mark.parametrize(("name", "story"), [("artifact", "Story 15")])
 def test_from_config_unimplemented_sections_raise_not_available_yet(name, story):
     with pytest.raises(ValueError, match=story):
         ContextBuilderNode.from_config({"sections": [name]}, _Deps())

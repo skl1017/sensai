@@ -25,10 +25,14 @@ class InMemoryStores:
     instances, the rest is `None` until their stories land."""
 
     def __init__(
-        self, conversation: Any = None, profile: Any = None, chunk_store: Any = None
+        self,
+        conversation: Any = None,
+        profile: Any = None,
+        memory_db: Any = None,
+        chunk_store: Any = None,
     ) -> None:
         self.conversation = conversation if conversation is not None else ConversationStore()
         self.profile = profile if profile is not None else ProfileStore(None)
-        self.memory_db: Any = None
+        self.memory_db: Any = memory_db
         self.chunk_store: Any = chunk_store
         self.journal: Any = None
