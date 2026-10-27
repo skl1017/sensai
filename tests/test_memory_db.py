@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import create_engine
 
 from app import _stores_from_config
+from config.db import db as app_db
 from config_loader import AgentConfig
 from storage.memory_db import MemoryDB
 
 
 @pytest.fixture
 def db():
-    d = MemoryDB(":memory:")
+    d = MemoryDB()
     yield d
     d.close()
 
@@ -88,23 +90,21 @@ def test_relations(db):
 def test_cascade_delete_entity_removes_facts_and_relations(db):
     _save(db, "alice", {"k": "v"}, relations=[("knows", "bob")])
     eid = db.upsert_entity("alice")
-    with db._lock, db._conn:
-        db._conn.execute("DELETE FROM entities WHERE id = ?", (eid,))
+    with db._lock, db._engine.begin() as conn:
+        conn.exec_driver_sql("DELETE FROM entities WHERE id = ?", (eid,))
     assert db.list_facts() == []
     assert db.search([1.0, 0.0, 0.0]) == []
     assert db.relations_of("alice") == []
 
 
-def test_file_db_persists_and_uses_wal(tmp_path):
-    path = tmp_path / "sub" / "mem.db"
-    path.parent.mkdir()
-    first = MemoryDB(path)
+def test_shared_engine_persists_across_instances(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'mem.db'}")
+    first = MemoryDB(engine)
     _save(first, "alice", {"city": "Paris"})
-    assert first._conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
-    first.close()
-    second = MemoryDB(path)
+    first.close()  # shared engine: left open
+    second = MemoryDB(engine)
     assert second.search([1.0, 0.0, 0.0])[0].entity == "alice"
-    second.close()
+    engine.dispose()
 
 
 async def test_async_wrappers(db):
@@ -120,12 +120,8 @@ async def test_async_wrappers(db):
     assert await db.aforget(fid) is True
 
 
-def test_stores_from_config_builds_memory_db(tmp_path):
-    path = tmp_path / "data" / "memory.db"
-    cfg = AgentConfig(
-        llm={}, persona="p", pipeline=[], tools=[("memory", {"db": str(path)})], approval=[]
-    )
+def test_stores_from_config_builds_memory_db_on_shared_engine():
+    cfg = AgentConfig(llm={}, persona="p", pipeline=[], tools=[("memory", {})], approval=[])
     stores = _stores_from_config(cfg)
-    assert path.exists()
-    stores.memory_db.close()
+    assert stores.memory_db._engine is app_db.engine
     assert _stores_from_config(AgentConfig(llm={}, persona="p", pipeline=[])).memory_db is None

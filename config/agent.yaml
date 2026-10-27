@@ -30,7 +30,7 @@ pipeline:                      # list order = execution order (wiki §9)
 tools:
   - calculator
   - ask_user
-  - memory: { db: data/memory.db }
+  - memory
   - read_file
   - list_dir
   - write_file
