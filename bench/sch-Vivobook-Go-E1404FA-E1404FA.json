@@ -1,0 +1,179 @@
+{
+  "date": "2026-10-27T09:57:45.368652+00:00",
+  "machine": {
+    "hostname": "sch-Vivobook-Go-E1404FA-E1404FA",
+    "os": "Linux 7.0.0-38-generic",
+    "cpu": "AMD Ryzen 5 7520U with Radeon Graphics",
+    "cores": 8,
+    "ram_gb": 16.0006144,
+    "gpu": null,
+    "ollama": "0.34.4"
+  },
+  "options": {
+    "temperature": 0,
+    "seed": 42,
+    "num_ctx": 8192,
+    "num_predict": 128
+  },
+  "runs": 3,
+  "models": [
+    {
+      "model": "qwen2.5:3b",
+      "load_ms": 8864.285535,
+      "memory": {
+        "size_gb": 2.412154715,
+        "vram_gb": 0.0,
+        "gpu_pct": 0
+      },
+      "prompts": {
+        "short": {
+          "samples": [
+            {
+              "ttft_ms": 599.308863999795,
+              "latency_ms": 9530.058777999784,
+              "load_ms": 2.002213,
+              "prompt_tokens": 29,
+              "completion_tokens": 83,
+              "prompt_tok_s": 48.928053827607904,
+              "gen_tok_s": 9.29368550056294
+            },
+            {
+              "ttft_ms": 563.9788429998589,
+              "latency_ms": 8867.672691999815,
+              "load_ms": 1.658316,
+              "prompt_tokens": 29,
+              "completion_tokens": 77,
+              "prompt_tok_s": 52.00142734952311,
+              "gen_tok_s": 9.272875310295095
+            },
+            {
+              "ttft_ms": 684.8277829999461,
+              "latency_ms": 8703.947477000384,
+              "load_ms": 1.34775,
+              "prompt_tokens": 29,
+              "completion_tokens": 74,
+              "prompt_tok_s": 42.749153861575294,
+              "gen_tok_s": 9.228030366704468
+            }
+          ],
+          "summary": {
+            "ttft_ms": {
+              "p50": 599.308863999795,
+              "p95": 684.8277829999461
+            },
+            "latency_ms": {
+              "p50": 8867.672691999815,
+              "p95": 9530.058777999784
+            },
+            "gen_tok_s": {
+              "p50": 9.272875310295095,
+              "p95": 9.29368550056294
+            },
+            "prompt_tok_s": {
+              "p50": 48.928053827607904,
+              "p95": 52.00142734952311
+            }
+          }
+        },
+        "long": {
+          "samples": [
+            {
+              "ttft_ms": 55286.90877400004,
+              "latency_ms": 68337.09236599953,
+              "load_ms": 1.945689,
+              "prompt_tokens": 2271,
+              "completion_tokens": 102,
+              "prompt_tok_s": 41.095839841531834,
+              "gen_tok_s": 7.8160194836507655
+            },
+            {
+              "ttft_ms": 55955.91960599995,
+              "latency_ms": 70806.53299799997,
+              "load_ms": 1.338627,
+              "prompt_tokens": 2271,
+              "completion_tokens": 116,
+              "prompt_tok_s": 40.64566143270104,
+              "gen_tok_s": 7.811089079949325
+            },
+            {
+              "ttft_ms": 55377.807847999975,
+              "latency_ms": 71476.88408699923,
+              "load_ms": 1.390094,
+              "prompt_tokens": 2271,
+              "completion_tokens": 126,
+              "prompt_tok_s": 41.07034193962259,
+              "gen_tok_s": 7.826520574928747
+            }
+          ],
+          "summary": {
+            "ttft_ms": {
+              "p50": 55377.807847999975,
+              "p95": 55955.91960599995
+            },
+            "latency_ms": {
+              "p50": 70806.53299799997,
+              "p95": 71476.88408699923
+            },
+            "gen_tok_s": {
+              "p50": 7.8160194836507655,
+              "p95": 7.826520574928747
+            },
+            "prompt_tok_s": {
+              "p50": 41.07034193962259,
+              "p95": 41.095839841531834
+            }
+          }
+        },
+        "tool": {
+          "samples": [
+            {
+              "ttft_ms": 7289.015866999762,
+              "latency_ms": 7506.108726000093,
+              "load_ms": 1.265237,
+              "prompt_tokens": 194,
+              "completion_tokens": 32,
+              "prompt_tok_s": 47.75603264543312,
+              "gen_tok_s": 9.46656217948661
+            },
+            {
+              "ttft_ms": 7368.477366000661,
+              "latency_ms": 7597.069604999888,
+              "load_ms": 2.078904,
+              "prompt_tokens": 194,
+              "completion_tokens": 32,
+              "prompt_tok_s": 46.179426113513315,
+              "gen_tok_s": 9.459124315654526
+            },
+            {
+              "ttft_ms": 7320.093990000714,
+              "latency_ms": 7536.696343000585,
+              "load_ms": 1.792037,
+              "prompt_tokens": 194,
+              "completion_tokens": 32,
+              "prompt_tok_s": 47.08413304691719,
+              "gen_tok_s": 9.40724922625375
+            }
+          ],
+          "summary": {
+            "ttft_ms": {
+              "p50": 7320.093990000714,
+              "p95": 7368.477366000661
+            },
+            "latency_ms": {
+              "p50": 7536.696343000585,
+              "p95": 7597.069604999888
+            },
+            "gen_tok_s": {
+              "p50": 9.459124315654526,
+              "p95": 9.46656217948661
+            },
+            "prompt_tok_s": {
+              "p50": 47.08413304691719,
+              "p95": 47.75603264543312
+            }
+          }
+        }
+      }
+    }
+  ]
+}
