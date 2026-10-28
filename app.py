@@ -56,6 +56,7 @@ from tools.agent_tool import AgentTool, SubAgentUI
 from tools.approved_tool import ApprovedTool
 from tools.ask_user_tool import AskUserTool
 from tools.calculator import CalculatorTool
+from tools.code_sandbox import CodeSandboxTool
 from tools.file_tool import ListDirTool, PermissionPolicy, ReadFileTool, WriteFileTool
 from tools.mcp_adapter import MCPToolAdapter, connect_servers
 from tools.memory_tool import from_config as memory_tools_from_config
@@ -113,6 +114,7 @@ TOOLS: dict[str, Callable[[dict, Deps], ITool | list[ITool]]] = {
     "list_dir": ListDirTool.from_config,
     "write_file": WriteFileTool.from_config,
     "web_search": build_web_tools,
+    "run_python": CodeSandboxTool.from_config,
 }
 
 
