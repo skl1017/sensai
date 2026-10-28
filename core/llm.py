@@ -52,6 +52,14 @@ class ILLM(ABC):
     @abstractmethod
     def count_tokens(self, messages: list[Message]) -> int: ...
 
+    @property
+    @abstractmethod
+    def options(self) -> dict: ...
+
+    @abstractmethod
+    def update_options(self, **kwargs) -> None:
+        """Update one or more generation parameters (temperature, top_p, ...) in place."""
+
 
 class IEmbedder(ABC):
     @abstractmethod
