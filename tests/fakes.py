@@ -37,6 +37,7 @@ class FakeLLM(ILLM):
         self.model = model
         self.max_context_tokens = max_context_tokens
         self.calls: list[dict[str, Any]] = []
+        self._options: dict = {}
 
     @property
     def remaining(self) -> int:
@@ -44,6 +45,13 @@ class FakeLLM(ILLM):
 
     def count_tokens(self, messages: list[Message]) -> int:
         return sum(len(m.content) // 4 + 1 for m in messages)
+
+    @property
+    def options(self) -> dict:
+        return dict(self._options)
+
+    def update_options(self, **kwargs) -> None:
+        self._options.update(kwargs)
 
     async def chat(
         self,

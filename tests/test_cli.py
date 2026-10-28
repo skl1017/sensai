@@ -40,6 +40,13 @@ class _RaisingLLM(ILLM):
     def count_tokens(self, messages: list[Message]) -> int:
         return 0
 
+    @property
+    def options(self) -> dict:
+        return {}
+
+    def update_options(self, **kwargs) -> None:
+        pass
+
     async def chat(self, messages, tools=None, schema=None):
         raise LLMError("boom")
         yield  # pragma: no cover - makes this an async generator
