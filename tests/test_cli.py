@@ -312,3 +312,83 @@ async def test_tools_command_lists_loaded_tools():
     out = io.StringIO()
     await run_cli(agent, CliUI(out=out), scripted_read_line(["/tools", "/quit"]))
     assert f"  {FakeTool().name} — " in out.getvalue()
+
+
+# --- /llm ----------------------------------------------------------------------
+
+
+async def test_llm_show_prints_current_options():
+    agent = make_agent(_ShortCircuitNode())
+    agent.llm.update_options(temperature=0.3)
+    out = io.StringIO()
+    await run_cli(agent, CliUI(out=out), scripted_read_line(["/llm", "/quit"]))
+    assert "temperature: 0.3" in out.getvalue()
+
+
+async def test_llm_show_with_no_options_set():
+    agent = make_agent(_ShortCircuitNode())
+    out = io.StringIO()
+    await run_cli(agent, CliUI(out=out), scripted_read_line(["/llm show", "/quit"]))
+    assert "(no options set)" in out.getvalue()
+
+
+async def test_llm_set_updates_the_live_llm_and_confirms():
+    agent = make_agent(_ShortCircuitNode())
+    out = io.StringIO()
+    await run_cli(agent, CliUI(out=out), scripted_read_line(["/llm set temperature 0.2", "/quit"]))
+    assert "Set temperature = 0.2" in out.getvalue()
+    assert agent.llm.options["temperature"] == 0.2  # parsed to a real float, not "0.2"
+
+
+async def test_llm_set_parses_bool_and_int_values():
+    agent = make_agent(_ShortCircuitNode())
+    out = io.StringIO()
+    await run_cli(
+        agent,
+        CliUI(out=out),
+        scripted_read_line(["/llm set num_predict 128", "/llm set mirostat true", "/quit"]),
+    )
+    assert agent.llm.options["num_predict"] == 128
+    assert agent.llm.options["mirostat"] is True
+
+
+async def test_llm_set_without_enough_arguments_reports_usage():
+    agent = make_agent(_ShortCircuitNode())
+    out = io.StringIO()
+    await run_cli(agent, CliUI(out=out), scripted_read_line(["/llm set temperature", "/quit"]))
+    assert "Usage: /llm set <key> <value>" in out.getvalue()
+    assert agent.llm.options == {}
+
+
+async def test_llm_unknown_subcommand_reports_error():
+    agent = make_agent(_ShortCircuitNode())
+    out = io.StringIO()
+    await run_cli(agent, CliUI(out=out), scripted_read_line(["/llm wat", "/quit"]))
+    assert "Unknown /llm subcommand" in out.getvalue()
+
+
+async def test_llm_set_changes_take_effect_immediately_on_the_next_turn():
+    """The same object the ReAct loop calls `chat()` on is mutated in place —
+    no rebuild, no restart, the very next turn sees the new value."""
+
+    class _RecordingLLM(FakeLLM):
+        def __init__(self):
+            super().__init__(["ok"])
+            self.seen_options: list[dict] = []
+
+        async def chat(self, messages, tools=None, schema=None):
+            self.seen_options.append(self.options)
+            async for chunk in super().chat(messages, tools, schema):
+                yield chunk
+
+    from nodes.react_loop import ReActLoopNode
+
+    llm = _RecordingLLM()
+    agent = Agent(llm, [], [ReActLoopNode()])
+    out = io.StringIO()
+    await run_cli(
+        agent,
+        CliUI(out=out),
+        scripted_read_line(["/llm set temperature 0.5", "hello", "/quit"]),
+    )
+    assert llm.seen_options == [{"temperature": 0.5}]
