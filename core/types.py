@@ -46,7 +46,11 @@ Reserved `ctx.state` keys
 - `context_stats`: written by `ContextBuilderNode`; read by `LoggingNode`.
   `{tokens_before, tokens_after, compressed}`.
 - `retrieved_chunks`: written by `ContextBuilderNode`; read by `EvalNode`.
-  Injected RAG chunks, with score and source.
+  Injected RAG chunks: `{index, chunk_id, source_id, source_name,
+  chunk_index, score}`, `index` being the `[n]` the model cites.
+- `citations`: written by `ContextBuilderNode`; read by UI, `EvalNode`.
+  `{cited, invalid}`: `retrieved_chunks` entries cited by the final
+  response, and cited numbers matching no injected passage.
 - `react_trace`: written by `ReActLoopNode`; read by `LoggingNode`,
   `EvalNode`, `CacheNode`. List of `{step, thought, action, args,
   observation}`.
