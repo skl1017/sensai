@@ -93,3 +93,14 @@ Example:
 [calculator(expression='12*(3+4)**2')]
 12 * (3 + 4) ** 2 = 588
 ```
+
+## Limitations
+
+- **Answer quality**: answers depend on the local model; a small model can be wrong or inconsistent.
+- **Performance**: response times depend on the hardware and can be long without a GPU.
+- **External services**: Ollama is required; `web_search` needs SearXNG or a SerpApi key,
+  `run_python` needs Docker and the filesystem MCP server needs `npx`.
+- **Documents**: scanned PDFs are not supported (no OCR) and some PDFs extract poorly.
+- **Security**: there is no input or output guardrail yet, and side-effecting tools rely on
+  human approval.
+- **Interface**: the terminal is the only interface for now.
