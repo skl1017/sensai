@@ -7,6 +7,7 @@ Généré par `python -m eval.bench`. Médianes sur les runs mesurés (p95 entre
 | Machine | CPU | Cœurs | RAM (Go) | GPU | Ollama | Date |
 |---|---|---|---|---|---|---|
 | DESKTOP-V6CATDH | AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD | 16 | — | NVIDIA GeForce RTX 5080, 16303 MiB | 0.40.11 | 2026-10-27 |
+| PLATINIUM | AMD Ryzen 7 7735U with Radeon Graphics | 16 | 16.0 | — | 0.34.4 | 2026-10-30 |
 | sch-Vivobook-Go-E1404FA-E1404FA | AMD Ryzen 5 7520U with Radeon Graphics | 8 | 16.0 | — | 0.34.4 | 2026-10-30 |
 | zen | AMD Ryzen 7 7735U with Radeon Graphics | 16 | 16.0 | — | 0.34.4 | 2026-10-27 |
 
@@ -17,6 +18,18 @@ Généré par `python -m eval.bench`. Médianes sur les runs mesurés (p95 entre
 | DESKTOP-V6CATDH | qwen2.5:3b | short | 16.1 | 24 (28) | 410 (476) | 255 (257) | 2121 (2477) | 2.4 | 2.4 | 100 |
 | DESKTOP-V6CATDH | qwen2.5:3b | long | 16.1 | 203 (248) | 711 (772) | 244 (245) | 15248 (15510) | 2.4 | 2.4 | 100 |
 | DESKTOP-V6CATDH | qwen2.5:3b | tool | 16.1 | 150 (211) | 160 (219) | 247 (254) | 8930 (9497) | 2.4 | 2.4 | 100 |
+| PLATINIUM | qwen2.5:3b | short | 7.6 | 293 (340) | 4742 (5506) | 17 (17) | 102 (106) | 2.4 | 0.0 | 0 |
+| PLATINIUM | qwen2.5:3b | long | 7.6 | 27435 (27525) | 35933 (36366) | 14 (14) | 83 (84) | 2.4 | 0.0 | 0 |
+| PLATINIUM | qwen2.5:3b | tool | 7.6 | 3766 (3818) | 3885 (3934) | 17 (17) | 95 (95) | 2.4 | 0.0 | 0 |
+| PLATINIUM | llama3.2:3b | short | 6.9 | 328 (368) | 5344 (5388) | 17 (17) | 135 (136) | 3.1 | 0.0 | 0 |
+| PLATINIUM | llama3.2:3b | long | 6.9 | 28408 (28837) | 39553 (40005) | 11 (11) | 81 (82) | 3.1 | 0.0 | 0 |
+| PLATINIUM | llama3.2:3b | tool | 6.9 | 3580 (3803) | 3641 (3864) | 17 (17) | 96 (96) | 3.1 | 0.0 | 0 |
+| PLATINIUM | qwen3:4b | short | 6.0 | 5061 (5858) | 10078 (10238) | 13 (13) | 75 (76) | 3.9 | 0.0 | 0 |
+| PLATINIUM | qwen3:4b | long | 6.0 | — | 54412 (54912) | 9 (9) | 58 (59) | 3.9 | 0.0 | 0 |
+| PLATINIUM | qwen3:4b | tool | 6.0 | — | 13043 (13065) | 13 (13) | 71 (72) | 3.9 | 0.0 | 0 |
+| PLATINIUM | qwen2.5:7b | short | 10.0 | 674 (685) | 8678 (8717) | 8 (8) | 44 (46) | 5.5 | 0.0 | 0 |
+| PLATINIUM | qwen2.5:7b | long | 10.0 | 65524 (66096) | 79427 (79818) | 7 (7) | 35 (36) | 5.5 | 0.0 | 0 |
+| PLATINIUM | qwen2.5:7b | tool | 10.0 | 8915 (8923) | 9169 (9182) | 8 (8) | 38 (38) | 5.5 | 0.0 | 0 |
 | sch-Vivobook-Go-E1404FA-E1404FA | qwen2.5:3b | short | 4.6 | 552 (557) | 5722 (6125) | 15 (15) | 53 (54) | 2.4 | 0.0 | 0 |
 | sch-Vivobook-Go-E1404FA-E1404FA | qwen2.5:3b | long | 4.6 | 53923 (54011) | 63905 (64912) | 12 (12) | 42 (42) | 2.4 | 0.0 | 0 |
 | sch-Vivobook-Go-E1404FA-E1404FA | qwen2.5:3b | tool | 4.6 | 6065 (6108) | 6204 (6244) | 15 (15) | 48 (48) | 2.4 | 0.0 | 0 |
