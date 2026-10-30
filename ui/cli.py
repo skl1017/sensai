@@ -66,6 +66,8 @@ Available commands:
   /profile unset <key>           Remove a profile preference.
   /profile instructions <text>   Set the profile's custom instructions.
   /profile clear                 Clear the whole profile.
+  /llm                           Show the current generation options.
+  /llm set <key> <value>         Change a generation option (temperature, top_p...) now.
   /persona [<name>]              Show or switch the persona for next turns.
   /memory list [<entity>]        List remembered facts (and relations).
   /memory edit <id> <value>      Change the value of a remembered fact.
@@ -466,6 +468,44 @@ async def _cmd_profile(ui: CliUI, stores: Stores, arg: str) -> None:
         ui.out.write("Unknown /profile subcommand, type /help\n")
 
 
+def _parse_value(raw: str) -> bool | int | float | str:
+    if raw.lower() in ("true", "false"):
+        return raw.lower() == "true"
+    try:
+        return int(raw)
+    except ValueError:
+        pass
+    try:
+        return float(raw)
+    except ValueError:
+        pass
+    return raw
+
+
+async def _cmd_llm(ui: CliUI, agent: Agent, arg: str) -> None:
+    parts = arg.split(maxsplit=1)
+    sub = parts[0] if parts else ""
+    rest = parts[1] if len(parts) > 1 else ""
+
+    if sub in ("", "show"):
+        options = agent.llm.options
+        if not options:
+            ui.out.write("(no options set)\n")
+            return
+        for key, value in options.items():
+            ui.out.write(f"{key}: {value}\n")
+    elif sub == "set":
+        kv = rest.split(maxsplit=1)
+        if len(kv) != 2:
+            ui.out.write("Usage: /llm set <key> <value>\n")
+            return
+        key, raw_value = kv
+        agent.llm.update_options(**{key: _parse_value(raw_value)})
+        ui.out.write(f"Set {key} = {raw_value}\n")
+    else:
+        ui.out.write("Unknown /llm subcommand, type /help\n")
+
+
 _MEMORY_USAGE = "Usage: /memory list [<entity>] | /memory edit <id> <value> | /memory delete <id>"
 
 
@@ -573,6 +613,10 @@ async def _do_profile(shell: _Shell, rest: str) -> None:
     await _cmd_profile(shell.ui, shell.stores, rest)
 
 
+async def _do_llm(shell: _Shell, rest: str) -> None:
+    await _cmd_llm(shell.ui, shell.agent, rest)
+
+
 async def _do_memory(shell: _Shell, rest: str) -> None:
     await _cmd_memory(shell.ui, shell.stores, shell.agent.llm.embedder, rest)
 
@@ -612,6 +656,7 @@ COMMANDS: dict[str, CommandHandler] = {
     "/persona": _do_persona,
     "/memory": _do_memory,
     "/tools": _do_tools,
+    "/llm": _do_llm,
 }
 
 

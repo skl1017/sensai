@@ -143,6 +143,13 @@ class Ollama(ILLM):
             client if client is not None else httpx.AsyncClient(base_url=host, timeout=None)
         )
 
+    @property
+    def options(self) -> dict:
+        return dict(self._options)
+
+    def update_options(self, **kwargs) -> None:
+        self._options.update(kwargs)
+
     async def aclose(self) -> None:
         await self._client.aclose()
 

@@ -31,6 +31,13 @@ class StubLLM(ILLM):
     def count_tokens(self, messages):
         return 0
 
+    @property
+    def options(self) -> dict:
+        return {}
+
+    def update_options(self, **kwargs) -> None:
+        pass
+
 
 class StubTool(ITool):
     def __init__(self, name: str = "stub_tool"):

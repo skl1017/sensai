@@ -83,6 +83,13 @@ class FakeLLM(ILLM):
     def count_tokens(self, messages: list[Message]) -> int:
         return len(messages)
 
+    @property
+    def options(self) -> dict:
+        return {}
+
+    def update_options(self, **kwargs) -> None:
+        pass
+
 
 async def test_fake_llm_chat_can_be_iterated_and_last_chunk_is_done():
     llm = FakeLLM()

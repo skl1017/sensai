@@ -83,6 +83,50 @@ async def test_user_num_ctx_option_overrides_max_context_tokens():
     assert llm._options == {"num_ctx": 100}
 
 
+# --------------------------------------------------------------------------
+# Runtime-mutable options (temperature, top_p, ... changed after construction)
+# --------------------------------------------------------------------------
+
+
+async def test_options_property_returns_a_copy_not_the_live_dict():
+    llm = make_llm(never_called)
+    snapshot = llm.options
+    snapshot["num_ctx"] = 1
+    assert llm._options["num_ctx"] == 8192  # the real dict was never touched
+
+
+async def test_update_options_adds_a_new_key():
+    llm = make_llm(never_called)
+    llm.update_options(temperature=0.3)
+    assert llm.options == {"num_ctx": 8192, "temperature": 0.3}
+
+
+async def test_update_options_overrides_an_existing_key():
+    llm = make_llm(never_called, options={"temperature": 0.9})
+    llm.update_options(temperature=0.1)
+    assert llm.options["temperature"] == 0.1
+
+
+async def test_update_options_leaves_other_keys_untouched():
+    llm = make_llm(never_called, options={"temperature": 0.9})
+    llm.update_options(top_p=0.5)
+    assert llm.options == {"num_ctx": 8192, "temperature": 0.9, "top_p": 0.5}
+
+
+async def test_update_options_affects_the_next_chat_payload():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content)
+        return httpx.Response(200, content=ndjson(done_line()))
+
+    llm = make_llm(handler)
+    llm.update_options(temperature=0.4)
+    await collect(llm.chat([Message(role="user", content="hi")]))
+
+    assert captured["payload"]["options"] == {"num_ctx": 8192, "temperature": 0.4}
+
+
 async def test_async_context_manager_closes_client():
     client = httpx.AsyncClient(base_url=HOST, transport=httpx.MockTransport(never_called))
     async with Ollama(client=client, host=HOST) as llm:
