@@ -53,9 +53,24 @@ gitignored and must never be committed.
 To run Ollama in Docker and pull the chat and embedding models set in `.env`:
 
 ```bash
-docker compose up -d        # ollama on :11434 + one-shot model pull
+docker compose up -d        # ollama on :11434 + one-shot model pull + searxng on :8080
 docker compose logs -f ollama-pull
 ```
+
+### Web search (SearXNG)
+
+The `web_search` tool queries a SearXNG instance at `http://localhost:8080` (the `url` of
+`web_search` in `config/agent.yaml`), or Google via SerpApi when `SERPAPI_API_KEY` is set. The
+`searxng` service of `docker-compose.yml` provides that instance, published on `127.0.0.1` only:
+
+```bash
+docker compose up -d searxng
+curl "http://localhost:8080/search?q=test&format=json"   # JSON results = ready
+```
+
+Its settings live in `config/searxng/settings.yml`: the JSON format is enabled (SearXNG answers
+`403` without it) and the anti-bot limiter is disabled (it would block the agent's repeated
+queries). Set `SEARXNG_SECRET` in `.env` to replace the default secret key.
 
 ## Chat from the terminal
 

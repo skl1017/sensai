@@ -41,7 +41,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
-    "slow: integration tests requiring Ollama",
+    "slow: integration tests requiring a real service (Ollama, Docker, SearXNG)",
 ]
 
 [tool.ruff]
