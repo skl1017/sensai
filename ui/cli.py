@@ -4,7 +4,9 @@
 `app.chat_turn`, stream the answer to stdout token by token via
 `CliUI.on_token`. `ctx.response` is only printed directly when nothing was
 streamed (a cache hit or a guardrail short-circuit) — this keeps the CLI
-silent about the mechanism and just shows the text once.
+silent about the mechanism and just shows the text once. When the answer
+cites RAG passages (`ctx.state["citations"]`), the cited sources are listed
+under it, and citations matching no injected passage are flagged.
 
 Sessions are durable (`storage.conversation.ConversationStore`, wired by
 `app.open_stores`): the current session id is held in this loop and can
@@ -195,6 +197,24 @@ def _default_install_interrupt(task: asyncio.Task) -> Callable[[], None]:
     return remove
 
 
+def _format_citations(citations: dict | None) -> str:
+    """Sources block printed under an answer; `""` when it cites nothing."""
+    if not citations:
+        return ""
+    lines = []
+    if citations["cited"]:
+        lines.append("Sources:")
+        for chunk in citations["cited"]:
+            source = chunk["source_name"] or f"document {chunk['source_id']}"
+            if chunk["chunk_index"] is not None:
+                source += f" (passage {chunk['chunk_index'] + 1})"
+            lines.append(f"  [{chunk['index']}] {source}")
+    if citations["invalid"]:
+        numbers = ", ".join(f"[{n}]" for n in citations["invalid"])
+        lines.append(f"Warning: {numbers} cite(s) no retrieved document.")
+    return "".join(f"{line}\n" for line in lines)
+
+
 def _short(node_id: str) -> str:
     return node_id[:_SHORT_ID_CHARS]
 
@@ -317,6 +337,7 @@ async def _run_turn(
     if not ui.streamed:
         ui.out.write(ctx.response or "")
     ui.out.write("\n")
+    ui.out.write(_format_citations(ctx.state.get("citations")))
 
 
 async def _cmd_sessions(ui: CliUI, stores: Stores) -> None:

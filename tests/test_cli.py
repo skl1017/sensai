@@ -10,7 +10,7 @@ from core.llm import ILLM, LLMError
 from core.node import Next, PipelineNode
 from core.types import Context, Message, ToolCall
 from tests.fakes import FakeLLM
-from ui.cli import CliUI, run_cli
+from ui.cli import CliUI, _format_citations, run_cli
 
 
 def scripted_read_line(lines: list[str]):
@@ -136,6 +136,45 @@ async def test_llm_error_prints_error_and_continues():
     agent = make_agent(_RaisingNode(), llm=_RaisingLLM())
     await run_cli(agent, ui, scripted_read_line(["hello", "/quit"]))
     assert "Error: boom" in out.getvalue()
+
+
+class _CitingNode(PipelineNode):
+    """Short-circuits with an answer and the citations a RAG turn would record."""
+
+    async def handle(self, ctx: Context, next: Next) -> Context:
+        ctx.response = "Cinq semaines [1] [4]."
+        ctx.state["citations"] = {
+            "cited": [
+                {"index": 1, "source_id": 7, "source_name": "rh.pdf", "chunk_index": 2},
+            ],
+            "invalid": [4],
+        }
+        return ctx
+
+
+async def test_cited_sources_listed_under_answer_and_invalid_flagged():
+    out = io.StringIO()
+    agent = make_agent(_CitingNode())
+
+    await run_cli(agent, CliUI(out), scripted_read_line(["congés ?", "/quit"]))
+
+    text = out.getvalue()
+    assert "Cinq semaines [1] [4].\nSources:\n  [1] rh.pdf (passage 3)\n" in text
+    assert "Warning: [4] cite(s) no retrieved document." in text
+
+
+def test_format_citations_falls_back_to_source_id():
+    citations = {
+        "cited": [{"index": 2, "source_id": 5, "source_name": None, "chunk_index": None}],
+        "invalid": [],
+    }
+
+    assert _format_citations(citations) == "Sources:\n  [2] document 5\n"
+
+
+def test_format_citations_empty_without_citations():
+    assert _format_citations(None) == ""
+    assert _format_citations({"cited": [], "invalid": []}) == ""
 
 
 # --- end-to-end with real ReActLoopNode + CalculatorTool ----------------------

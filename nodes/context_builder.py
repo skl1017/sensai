@@ -15,8 +15,9 @@ Pipeline position 5 (wiki §9.1). Each turn:
    `profile` (`ProfileSection`, static user preferences/instructions),
    `persona` (`PersonaSection`, the active persona's rendered prompt
    template), `memory` (`MemorySection`, recalled long-term facts) and
-   `fewshot` (`FewShotSection`, the closest bank examples).
-   `artifact` and `rag` aren't implemented yet (Story 15, 11).
+   `fewshot` (`FewShotSection`, the closest bank examples) and `rag`
+   (`RAGSection`, retrieved document passages). `artifact` isn't
+   implemented yet (Story 15).
 3. `ctx.messages` is rebuilt from scratch: `[system?] + history +
    [current user message]` — the caller's own history list is never
    mutated, matching the `Context` invariant that nodes only ever append to
@@ -26,10 +27,15 @@ Pipeline position 5 (wiki §9.1). Each turn:
    `apply_budget` fits the rebuilt `ctx.messages` under the LLM's context
    window, folding old turns into a rolling summary (or dropping them, on
    LLM failure). Absent `budget`, no compression pass runs at all.
+5. Citations (on the way back, once `next` returned): when `RAGSection`
+   injected passages and a response exists, the `[n]` markers of the final
+   response are resolved against them (`nodes/citations.py`). This runs
+   after every later node, so it sees the response as the user gets it.
 
 `ctx.state` keys written here: `query` (step 1), `prompt` (by
 `PersonaSection`, when the `persona` section is enabled), `summary` and
-`context_stats` (by `apply_budget`, when `budget` is configured).
+`context_stats` (by `apply_budget`, when `budget` is configured),
+`retrieved_chunks` (by `RAGSection`) and `citations` (step 5).
 """
 
 from __future__ import annotations
@@ -39,6 +45,7 @@ import logging
 
 from core.node import Next, PipelineNode
 from core.types import Context, Message
+from nodes.citations import resolve_citations
 from nodes.context_budget import apply_budget
 from nodes.context_section import ContextSection
 from nodes.fewshot_section import FewShotSection
@@ -140,7 +147,7 @@ class ContextBuilderNode(PipelineNode):
         defaults to `False`.
 
         An unknown section name raises `ValueError`, and so do the
-        not-yet-implemented ones (`artifact`, `rag`), each naming
+        not-yet-implemented ones (`artifact`), each naming
         the story that will add it.
 
         `deps` is intentionally untyped here (not `Deps`) so this module
@@ -222,4 +229,9 @@ class ContextBuilderNode(PipelineNode):
         if self.budget is not None:
             ctx.messages = await apply_budget(ctx.messages, ctx.llm, ctx.state, **self.budget)
 
-        return await next(ctx)
+        ctx = await next(ctx)
+
+        retrieved = ctx.state.get("retrieved_chunks")
+        if retrieved and ctx.response:
+            ctx.state["citations"] = resolve_citations(ctx.response, retrieved)
+        return ctx
