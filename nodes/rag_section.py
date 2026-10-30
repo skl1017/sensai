@@ -67,9 +67,7 @@ class RAGSection(ContextSection):
             for chunk, score in hits
         ]
 
-
         passages = [self._render_passage(i, chunk) for i, (chunk, _) in enumerate(hits, start=1)]
-        print(passages)
         return "Relevant context (use it if it helps answer):\n\n" + "\n\n".join(passages)
 
     async def _rerank(self, query: str, hits: list[tuple]) -> list[tuple]:
