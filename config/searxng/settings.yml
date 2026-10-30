@@ -1,0 +1,15 @@
+# SearXNG settings for the `searxng` service of docker-compose.yml, backend
+# of the `web_search` tool (tools/web_search.py). Everything not set here
+# keeps SearXNG's defaults. The secret key comes from `SEARXNG_SECRET`.
+use_default_settings: true
+
+server:
+  # The agent queries in bursts from one IP: the anti-bot limiter would block it.
+  limiter: false
+  image_proxy: false
+
+search:
+  # `json` is off by default (HTTP 403); `SearXNGProvider` needs it.
+  formats:
+    - html
+    - json

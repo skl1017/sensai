@@ -35,5 +35,17 @@ services:
       - ollama pull "${OLLAMA_MODEL:-llama3.1}" && ollama pull "${OLLAMA_EMBED_MODEL:-nomic-embed-text}"
     restart: "no"
 
+  # Metasearch engine behind the `web_search` tool; settings enable the JSON API.
+  searxng:
+    image: searxng/searxng:latest
+    dns: [1.1.1.1, 8.8.8.8]
+    ports:
+      - "127.0.0.1:8080:8080"   # local only: matches web_search's url in config/agent.yaml
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-sensai-local-only}
+    volumes:
+      - ./config/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    restart: unless-stopped
+
 volumes:
   ollama:
