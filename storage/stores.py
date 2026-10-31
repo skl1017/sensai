@@ -17,12 +17,14 @@ class Stores(Protocol):
     profile: Any
     memory_db: Any
     chunk_store: Any
+    semantic_cache: Any
     journal: Any
 
 
 class InMemoryStores:
     """Concrete `Stores`: conversation and profile default to in-memory-backed
-    instances, the rest is `None` until their stories land."""
+    instances; memory_db, chunk_store, semantic_cache and journal stay `None`
+    unless injected."""
 
     def __init__(
         self,
@@ -30,9 +32,11 @@ class InMemoryStores:
         profile: Any = None,
         memory_db: Any = None,
         chunk_store: Any = None,
+        semantic_cache: Any = None,
     ) -> None:
         self.conversation = conversation if conversation is not None else ConversationStore()
         self.profile = profile if profile is not None else ProfileStore(None)
         self.memory_db: Any = memory_db
         self.chunk_store: Any = chunk_store
+        self.semantic_cache: Any = semantic_cache
         self.journal: Any = None

@@ -42,6 +42,7 @@ from core.types import Context
 from core.ui import UserInterface
 from llm.cross_encoder import FastEmbedReranker
 from llm.ollama import Ollama, OllamaEmbedder
+from nodes.cache_node import CacheNode
 from nodes.context_builder import ContextBuilderNode
 from nodes.persist_node import PersistNode
 from nodes.react_loop import ReActLoopNode
@@ -50,6 +51,7 @@ from storage.chunk_store import ChunkStore
 from storage.conversation import ConversationStore
 from storage.memory_db import MemoryDB
 from storage.profile import ProfileStore
+from storage.semantic_cache import SemanticCache
 from storage.stores import InMemoryStores, Stores
 from storage.vector_storage import SqliteVectorStorage
 from tools.agent_tool import AgentTool, SubAgentUI
@@ -102,6 +104,7 @@ def flatten(items: Iterable[ITool | list[ITool]]) -> list[ITool]:
 
 NODES: dict[str, Callable[[dict, Deps], PipelineNode]] = {
     "persist": PersistNode.from_config,
+    "cache": CacheNode.from_config,
     "context": ContextBuilderNode.from_config,
     "react": ReActLoopNode.from_config,
 }
@@ -169,17 +172,20 @@ def needs_approval(tool: ITool, cfg: AgentConfig) -> bool:
 
 
 def _stores_from_config(cfg: AgentConfig) -> InMemoryStores:
-    """Build the default `InMemoryStores` from the `persist`/`context` pipeline entries.
+    """Build the default `InMemoryStores` from the `persist`/`cache`/`context` pipeline entries.
 
     `ConversationStore(root=...)` is used when a `persist` entry carries a
     `dir` param, in-memory otherwise. `ProfileStore` is backed by the
     `context` entry's `profile_path` (default `"data/profile.yaml"`) when a
     `context` entry is present at all, in-memory (`ProfileStore(None)`)
-    otherwise. Kept deliberately simple: no validation beyond what
+    otherwise. A `cache` entry adds a `SemanticCache` in the shared engine, its
+    vector table sized by the entry's `embedding_dim` (default 768,
+    nomic-embed-text). Kept deliberately simple: no validation beyond what
     `PersistNode.from_config`/`ContextBuilderNode.from_config` already do.
     """
     persist_params = next((params for name, params in cfg.pipeline if name == "persist"), None)
     context_params = next((params for name, params in cfg.pipeline if name == "context"), None)
+    cache_params = next((params for name, params in cfg.pipeline if name == "cache"), None)
 
     conversation = None
     if persist_params is not None and "dir" in persist_params:
@@ -196,11 +202,24 @@ def _stores_from_config(cfg: AgentConfig) -> InMemoryStores:
         db.engine,
         SqliteVectorStorage(db.engine),
     )
+    semantic_cache = None
+    if cache_params is not None:
+        semantic_cache = SemanticCache(
+            db.engine,
+            SqliteVectorStorage(
+                db.engine,
+                embedding_dim=cache_params.get("embedding_dim", 768),
+                table="cache_vectors",
+                distance_metric="cosine",
+            ),
+        )
+
     return InMemoryStores(
         conversation=conversation,
         profile=profile,
         memory_db=memory_db,
         chunk_store=chunk_store,
+        semantic_cache=semantic_cache,
     )
 
 
