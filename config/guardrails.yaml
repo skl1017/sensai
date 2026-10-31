@@ -1,0 +1,42 @@
+# Guardrail rules (EV2, wiki §7.3 / §7.7), loaded by `InputGuardrailNode`
+# (`input:`) and `OutputGuardrailNode` (`output:`) via their `rules:` param.
+# Every rule has an `action`: `block`/`refuse` stops, `warn` only logs the
+# rule name (never the matched text) and continues.
+# Limits: these heuristics can be bypassed (rephrasing, encoding, other
+# languages); they only cover the user's message, not RAG chunks or tool
+# observations. The EV4 adversarial suite measures how much gets through.
+
+input:
+  message: "Je ne peux pas traiter cette demande."
+  length:
+    action: block
+    message: "Ce message est trop long : raccourcis-le et réessaie."
+  forbidden:                     # regex, case-insensitive
+    - name: credential_dump
+      pattern: '\b(dump|exfiltre[rz]?|leak)\b.{0,40}\b(passwords?|mots? de passe|secrets?|tokens?|api[ _-]?keys?)\b'
+      action: block
+  injection:
+    action: block
+    message: "Je ne peux pas modifier mes instructions."
+    patterns:                    # empty/absent = built-in defaults of the node
+      - name: ignore_instructions
+        pattern: '\b(ignore[sz]?|oublie[sz]?|disregard|forget)\b.{0,30}\b(instructions?|consignes?|r[eè]gles?|rules?)\b'
+      - name: reveal_prompt
+        pattern: '\b(r[ée]v[eè]le|affiche|montre|print|reveal|show|repeat)\b.{0,30}\b(prompt|instructions?) (syst[eè]me|system)\b|\bsystem prompt\b'
+      - name: role_override
+        pattern: '\b(tu es maintenant|you are now|act as|agis comme)\b.{0,40}\b(dan|jailbreak|sans (restriction|filtre|limite)s?|unrestricted|no (rules|limits))\b'
+      - name: dan
+        pattern: '\b(dan mode|do anything now|developer mode)\b'
+  scope:                         # only used when `scope_check: true`
+    action: block
+    message: "Désolé, cette question sort de mon périmètre ({scope})."
+
+output:
+  refusal_message: "Je ne peux pas fournir cette réponse."
+  pii_action: mask               # mask | refuse | warn
+  forbidden_terms:
+    action: refuse
+    terms: []
+  classifier:
+    enabled: false
+    action: refuse
