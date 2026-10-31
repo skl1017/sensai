@@ -35,3 +35,13 @@ class Chunk(SQLModel, table=True):
         default=None, foreign_key="ingested_files.id", ondelete="CASCADE"
     )
     source_file: IngestedFile | None = Relationship(back_populates="chunks")
+
+
+class CacheEntry(SQLModel, table=True):
+    __tablename__ = "cache_entries"
+
+    id: str = Field(primary_key=True)
+    scope: str = Field(index=True)
+    question: str
+    response: str
+    created_at: float = Field(index=True)
