@@ -6,7 +6,10 @@
 streamed (a cache hit or a guardrail short-circuit) — this keeps the CLI
 silent about the mechanism and just shows the text once. When the answer
 cites RAG passages (`ctx.state["citations"]`), the cited sources are listed
-under it, and citations matching no injected passage are flagged.
+under it, and citations matching no injected passage are flagged. When the
+answer was streamed but an output guardrail then modified it
+(`ctx.state["output_modified"]`), the filtered answer is reprinted after a
+`[réponse filtrée]` marker.
 
 Sessions are durable (`storage.conversation.ConversationStore`, wired by
 `app.open_stores`): the current session id is held in this loop and can
@@ -21,8 +24,9 @@ facts the agent saved (`storage.memory_db`).
 
 Ctrl-C while a turn is in flight cancels *that turn* (X2), not the whole
 process: `install_interrupt` wires a `SIGINT` handler to `task.cancel()` for
-the turn's duration only, and the partial answer streamed so far is saved
-with `interrupted=True` so `/history` shows it. `run_cli`'s own cancellation
+the turn's duration only, and the partial answer streamed so far (PII
+masked, since it was streamed before any output guardrail) is saved with
+`interrupted=True` so `/history` shows it. `run_cli`'s own cancellation
 (e.g. the process shutting down) is never swallowed — see `_run_turn`.
 
 `/help` lists every command; any other `/x` is reported as unknown. EOF at
@@ -48,6 +52,7 @@ from typing import TextIO
 from app import ROOT, build_agent, chat_turn, open_stores
 from core.agent import Agent
 from core.llm import IEmbedder, LLMError
+from core.pii import PIIDetector
 from core.types import Message
 from storage.ingest import run_ingest
 from storage.stores import InMemoryStores, Stores
@@ -323,7 +328,7 @@ async def _run_turn(
             stores.conversation.append,
             session_id,
             append_parent,
-            [Message("user", text), Message("assistant", ui.partial)],
+            [Message("user", text), Message("assistant", PIIDetector().mask(ui.partial)[0])],
             interrupted=True,
         )
         return
@@ -335,6 +340,9 @@ async def _run_turn(
         return
 
     if not ui.streamed:
+        ui.out.write(ctx.response or "")
+    elif ctx.state.get("output_modified"):
+        ui.out.write("\n[réponse filtrée]\n")
         ui.out.write(ctx.response or "")
     ui.out.write("\n")
     ui.out.write(_format_citations(ctx.state.get("citations")))
