@@ -21,13 +21,14 @@ from app import (
 from core.node import PipelineNode
 from llm.cross_encoder import DEFAULT_MODEL, FastEmbedReranker
 from llm.ollama import Ollama, OllamaEmbedder
+from nodes.cache_node import CacheNode
 from nodes.context_builder import ContextBuilderNode
 from nodes.persist_node import PersistNode
 from nodes.react_loop import ReActLoopNode
 from nodes.reranker import LLMReranker
 from storage.memory_db import MemoryDB
 from storage.stores import InMemoryStores
-from tests.fakes import FakeEmbedder, FakeLLM, FakeTool
+from tests.fakes import FakeEmbedder, FakeLLM, FakeTool, make_semantic_cache
 from tools.agent_tool import AgentTool, SubAgentUI
 
 
@@ -218,17 +219,37 @@ async def test_build_agent_real_config_with_fake_llm():
     ui = _NoopUI()
     llm = FakeLLM(["hi"])
     llm.embedder = FakeEmbedder()
-    stores = InMemoryStores(memory_db=MemoryDB())
+    stores = InMemoryStores(memory_db=MemoryDB(), semantic_cache=make_semantic_cache())
     agent = await build_agent("config/agent.yaml", ui, llm=llm, stores=stores)
 
     assert "calculator" in agent.tools
     assert "read_file" in agent.tools
     assert "list_dir" in agent.tools
     assert "write_file" in agent.tools
-    assert len(agent.pipeline) == 3
+    assert len(agent.pipeline) == 4
     assert isinstance(agent.pipeline[0], PersistNode)
-    assert isinstance(agent.pipeline[1], ContextBuilderNode)
-    assert isinstance(agent.pipeline[2], ReActLoopNode)
+    assert isinstance(agent.pipeline[1], CacheNode)
+    assert isinstance(agent.pipeline[2], ContextBuilderNode)
+    assert isinstance(agent.pipeline[3], ReActLoopNode)
+
+
+@pytest.mark.usefixtures("no_mcp")
+async def test_build_agent_with_cache_entry_builds_cache_node(tmp_path):
+    cfg_path = tmp_path / "agent.yaml"
+    cfg_path.write_text(
+        "llm:\n  provider: ollama\n  model: fake\n"
+        "pipeline:\n  - cache: { threshold: 0.9, ttl_hours: 1, embedding_dim: 256 }\n  - react\n",
+        encoding="utf-8",
+    )
+    llm = FakeLLM([])
+    llm.embedder = FakeEmbedder()
+    stores = InMemoryStores(semantic_cache=make_semantic_cache())
+
+    agent = await build_agent(str(cfg_path), _NoopUI(), llm=llm, stores=stores)
+
+    assert isinstance(agent.pipeline[0], CacheNode)
+    assert agent.pipeline[0].threshold == 0.9
+    assert agent.pipeline[0].cache is stores.semantic_cache
 
 
 @pytest.mark.usefixtures("no_mcp")
@@ -240,7 +261,10 @@ async def test_write_file_requires_approval_in_real_config():
     llm = FakeLLM([])
     llm.embedder = FakeEmbedder()
     agent = await build_agent(
-        "config/agent.yaml", _NoopUI(), llm=llm, stores=InMemoryStores(memory_db=MemoryDB())
+        "config/agent.yaml",
+        _NoopUI(),
+        llm=llm,
+        stores=InMemoryStores(memory_db=MemoryDB(), semantic_cache=make_semantic_cache()),
     )
     assert isinstance(agent.tools["write_file"], ApprovedTool)
     assert not isinstance(agent.tools["read_file"], ApprovedTool)
@@ -254,7 +278,7 @@ async def test_build_agent_real_config_end_to_end_chat_turn():
     ui = _NoopUI()
     llm = FakeLLM(["hi there"])
     llm.embedder = FakeEmbedder()
-    stores = InMemoryStores(memory_db=MemoryDB())
+    stores = InMemoryStores(memory_db=MemoryDB(), semantic_cache=make_semantic_cache())
     agent = await build_agent("config/agent.yaml", ui, llm=llm, stores=stores)
 
     ctx = await chat_turn(agent, stores, "s1", "hello")
