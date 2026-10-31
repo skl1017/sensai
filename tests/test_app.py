@@ -22,6 +22,8 @@ from core.node import PipelineNode
 from llm.cross_encoder import DEFAULT_MODEL, FastEmbedReranker
 from llm.ollama import Ollama, OllamaEmbedder
 from nodes.context_builder import ContextBuilderNode
+from nodes.input_guardrail import InputGuardrailNode
+from nodes.output_guardrail import OutputGuardrailNode
 from nodes.persist_node import PersistNode
 from nodes.react_loop import ReActLoopNode
 from nodes.reranker import LLMReranker
@@ -187,6 +189,20 @@ async def test_build_agent_from_temp_config():
         assert node.on_event == ui.on_event
 
 
+@pytest.mark.parametrize("strict, streams", [(False, True), (True, False)])
+async def test_strict_output_guardrail_disables_streaming(tmp_path, strict, streams):
+    cfg_path = _write_config(
+        tmp_path, pipeline=f"react\n  - output_guardrail: {{ strict: {str(strict).lower()} }}"
+    )
+    ui = _NoopUI()
+    agent = await build_agent(str(cfg_path), ui, llm=FakeLLM([]))
+
+    react, guard = agent.pipeline
+    assert isinstance(guard, OutputGuardrailNode) and guard.strict is strict
+    assert (react.on_token == ui.on_token) is streams
+    assert react.on_event == ui.on_event
+
+
 async def test_build_agent_unknown_node_raises():
     import tempfile
     from pathlib import Path
@@ -225,10 +241,13 @@ async def test_build_agent_real_config_with_fake_llm():
     assert "read_file" in agent.tools
     assert "list_dir" in agent.tools
     assert "write_file" in agent.tools
-    assert len(agent.pipeline) == 3
-    assert isinstance(agent.pipeline[0], PersistNode)
-    assert isinstance(agent.pipeline[1], ContextBuilderNode)
-    assert isinstance(agent.pipeline[2], ReActLoopNode)
+    assert [type(n) for n in agent.pipeline] == [
+        PersistNode,
+        InputGuardrailNode,
+        ContextBuilderNode,
+        ReActLoopNode,
+        OutputGuardrailNode,
+    ]
 
 
 @pytest.mark.usefixtures("no_mcp")

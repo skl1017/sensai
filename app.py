@@ -43,6 +43,8 @@ from core.ui import UserInterface
 from llm.cross_encoder import FastEmbedReranker
 from llm.ollama import Ollama, OllamaEmbedder
 from nodes.context_builder import ContextBuilderNode
+from nodes.input_guardrail import InputGuardrailNode
+from nodes.output_guardrail import OutputGuardrailNode
 from nodes.persist_node import PersistNode
 from nodes.react_loop import ReActLoopNode
 from nodes.reranker import LLMReranker
@@ -75,7 +77,9 @@ class Deps:
     config's `reranker:` section (`RAGSection` with `rerank: true`);
     `config_dir` is the directory of the loaded `agent.yaml` (personas,
     prompts, few-shot bank are resolved against it);
-    `persona`/`prompt_version` are the config's root keys.
+    `persona`/`prompt_version` are the config's root keys. `stream` is
+    `False` when an `output_guardrail` entry is `strict` (EV2): the ReAct node
+    then streams nothing and the UI shows the checked answer only.
     """
 
     llm: ILLM
@@ -87,6 +91,7 @@ class Deps:
     persona: str = "default"
     prompt_version: str | None = None
     permissions: PermissionPolicy | None = None
+    stream: bool = True
 
 
 def flatten(items: Iterable[ITool | list[ITool]]) -> list[ITool]:
@@ -102,8 +107,10 @@ def flatten(items: Iterable[ITool | list[ITool]]) -> list[ITool]:
 
 NODES: dict[str, Callable[[dict, Deps], PipelineNode]] = {
     "persist": PersistNode.from_config,
+    "input_guardrail": InputGuardrailNode.from_config,
     "context": ContextBuilderNode.from_config,
     "react": ReActLoopNode.from_config,
+    "output_guardrail": OutputGuardrailNode.from_config,
 }
 
 TOOLS: dict[str, Callable[[dict, Deps], ITool | list[ITool]]] = {
@@ -298,6 +305,9 @@ async def build_agent(
         config_dir=config_dir if config_dir is not None else Path(cfg_path).parent,
         persona=cfg.persona,
         prompt_version=cfg.prompt_version,
+        stream=not any(
+            name == "output_guardrail" and params.get("strict") for name, params in cfg.pipeline
+        ),
     )
 
     stack = AsyncExitStack()

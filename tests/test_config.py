@@ -28,7 +28,13 @@ def test_full_example_loads():
 
 def test_default_config_loads():
     cfg = load_config(CONFIG_DIR / "agent.yaml")
-    assert [name for name, _ in cfg.pipeline] == ["persist", "context", "react"]
+    assert [name for name, _ in cfg.pipeline] == [
+        "persist",
+        "input_guardrail",
+        "context",
+        "react",
+        "output_guardrail",
+    ]
 
 
 def test_minimal_config_uses_defaults(tmp_path):

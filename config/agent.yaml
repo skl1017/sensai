@@ -19,6 +19,7 @@ prompt_version: v2
 
 pipeline:                      # list order = execution order (wiki §9)
   - persist: { dir: sessions/, persist_blocked: false }
+  - input_guardrail: { max_chars: 4000, rules: config/guardrails.yaml, scope_check: false }
   - context:
       sections: [persona, profile, memory, fewshot, rag]
       budget: { reserve_output: 1024, trigger_ratio: 0.8, keep_last_turns: 4 }
@@ -26,6 +27,7 @@ pipeline:                      # list order = execution order (wiki §9)
       fewshot: { k: 3, min_score: 0.5 }   # below 0.5 (nomic-embed-text) examples are off-topic
       rag: { k: 20, min_score: 0.3, rerank: true, rerank_min_score: 0.1, top_k: 4 }
   - react: { max_iterations: 8, tool_timeout: 30, max_observation_chars: 4000 }
+  - output_guardrail: { strict: false, pii: [email, phone, iban, card], rules: config/guardrails.yaml }
 
 tools:
   - calculator

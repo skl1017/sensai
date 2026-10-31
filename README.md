@@ -101,6 +101,11 @@ Example:
 - **External services**: Ollama is required; `web_search` needs SearXNG or a SerpApi key,
   `run_python` needs Docker and the filesystem MCP server needs `npx`.
 - **Documents**: scanned PDFs are not supported (no OCR) and some PDFs extract poorly.
-- **Security**: there is no input or output guardrail yet, and side-effecting tools rely on
-  human approval.
+- **Guardrails** (`config/guardrails.yaml`): input checks (length, forbidden patterns,
+  injection heuristics, optional LLM scope check) can be bypassed by rephrasing, encoding or
+  another language, and only cover the user's message, not RAG chunks or tool observations.
+  PII masking is regex-based (email, phone, IBAN, card); names or addresses need an extra
+  recognizer. Answers are streamed before the output check: a masked answer is reprinted after
+  `[réponse filtrée]`, so the raw text shows briefly (set `strict: true` to disable streaming).
+- **Security**: side-effecting tools rely on human approval.
 - **Interface**: the terminal is the only interface for now.
