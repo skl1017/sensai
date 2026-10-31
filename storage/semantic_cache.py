@@ -9,11 +9,21 @@ import asyncio
 import time
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from sqlmodel import Session, select
 
 from config.db.models import CacheEntry
 from core.storage import IVectorStorage
+
+
+@dataclass
+class CacheHit:
+    """A cached exchange close enough to the query: the question is kept for the caller's guard."""
+
+    question: str
+    response: str
+    similarity: float
 
 
 class SemanticCache:
@@ -36,10 +46,10 @@ class SemanticCache:
         with Session(self._engine) as session:
             return list(session.exec(statement).all())
 
-    def _load_response(self, entry_id: str) -> str | None:
+    def _load_entry(self, entry_id: str) -> tuple[str, str] | None:
         with Session(self._engine) as session:
             entry = session.get(CacheEntry, entry_id)
-            return entry.response if entry is not None else None
+            return (entry.question, entry.response) if entry is not None else None
 
     def _insert(self, entry: CacheEntry) -> None:
         with Session(self._engine) as session:
@@ -61,8 +71,8 @@ class SemanticCache:
 
     async def lookup(
         self, scope: str, embedding: list[float], ttl_seconds: float | None
-    ) -> tuple[str, float] | None:
-        """Return the closest cached response in `scope` as (response, similarity), or None."""
+    ) -> CacheHit | None:
+        """Return the closest cached exchange in `scope` as a `CacheHit`, or None."""
         ids = await asyncio.to_thread(self._candidate_ids, scope, ttl_seconds)
         if not ids:
             return None
@@ -70,10 +80,10 @@ class SemanticCache:
         if not hits:
             return None
         hit = hits[0]
-        response = await asyncio.to_thread(self._load_response, hit.chunk_id)
-        if response is None:
+        entry = await asyncio.to_thread(self._load_entry, hit.chunk_id)
+        if entry is None:
             return None
-        return response, 1.0 - hit.distance
+        return CacheHit(question=entry[0], response=entry[1], similarity=1.0 - hit.distance)
 
     async def store(self, scope: str, question: str, embedding: list[float], response: str) -> str:
         """Cache a question/response pair under `scope` and return the new entry id."""

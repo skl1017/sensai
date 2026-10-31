@@ -50,7 +50,8 @@ async def test_same_vector_returns_response_with_similarity_one(cache):
     hit = await cache.lookup(SCOPE, [1.0, 0.0, 0.0, 0.0], ttl_seconds=None)
 
     assert hit is not None
-    response, similarity = hit
+    response, similarity = hit.response, hit.similarity
+    assert hit.question == "q"
     assert response == "réponse"
     assert similarity == pytest.approx(1.0, abs=1e-6)
 
@@ -63,8 +64,8 @@ async def test_lookup_returns_closest_of_two_entries(cache):
     hit = await cache.lookup(SCOPE, [1.0, 0.0, 0.0, 0.0], ttl_seconds=None)
 
     assert hit is not None
-    assert hit[0] == "proche"
-    assert 0.9 < hit[1] < 1.0
+    assert hit.response == "proche"
+    assert 0.9 < hit.similarity < 1.0
 
 
 @pytest.mark.asyncio
@@ -83,7 +84,7 @@ async def test_closer_entry_from_other_scope_does_not_hide_own_scope(cache):
     hit = await cache.lookup(SCOPE, [1.0, 0.0, 0.0, 0.0], ttl_seconds=None)
 
     assert hit is not None
-    assert hit[0] == "mon scope"
+    assert hit.response == "mon scope"
 
 
 @pytest.mark.asyncio
@@ -102,7 +103,7 @@ async def test_entry_within_ttl_is_returned(cache, clock):
     hit = await cache.lookup(SCOPE, [1.0, 0.0, 0.0, 0.0], ttl_seconds=60)
 
     assert hit is not None
-    assert hit[0] == "récent"
+    assert hit.response == "récent"
 
 
 @pytest.mark.asyncio
@@ -113,7 +114,7 @@ async def test_ttl_none_never_expires(cache, clock):
     hit = await cache.lookup(SCOPE, [1.0, 0.0, 0.0, 0.0], ttl_seconds=None)
 
     assert hit is not None
-    assert hit[0] == "éternel"
+    assert hit.response == "éternel"
 
 
 @pytest.mark.asyncio
@@ -128,7 +129,7 @@ async def test_purge_expired_removes_only_expired_entries(cache, clock):
     assert await cache.lookup(SCOPE, [1.0, 0.0, 0.0, 0.0], ttl_seconds=None) is not None
     hit = await cache.lookup(SCOPE, [0.0, 1.0, 0.0, 0.0], ttl_seconds=None)
     assert hit is not None
-    assert hit[0] == "récent"
+    assert hit.response == "récent"
 
 
 @pytest.mark.asyncio
