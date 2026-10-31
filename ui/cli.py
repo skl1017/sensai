@@ -750,6 +750,7 @@ async def amain(argv: list[str] | None = None) -> None:
     try:
         await run_cli(agent, ui, stores=stores, session_id=session_id)
     finally:
+        await agent.aclose()
         aclose = getattr(agent.llm, "aclose", None)
         if aclose is not None:
             await aclose()
