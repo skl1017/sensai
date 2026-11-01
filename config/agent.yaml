@@ -18,6 +18,7 @@ persona: default                 # config/personas/default.yaml
 prompt_version: v2
 
 pipeline:                      # list order = execution order (wiki §9)
+  - logging: { sink: logs/events.jsonl, redact_inputs: false }   # EV3, python -m ui.dashboard
   - persist: { dir: sessions/, persist_blocked: false }
   - input_guardrail: { max_chars: 4000, rules: config/guardrails.yaml, scope_check: false }
   - cache: { threshold: 0.96, ttl_hours: 24, mode: first_turn_only }   # bench/cache_threshold.md
@@ -29,6 +30,7 @@ pipeline:                      # list order = execution order (wiki §9)
       rag: { k: 20, min_score: 0.3, rerank: true, rerank_min_score: 0.1, top_k: 4 }
   - react: { max_iterations: 8, tool_timeout: 30, max_observation_chars: 4000 }
   - output_guardrail: { strict: false, pii: [email, phone, iban, card], rules: config/guardrails.yaml }
+  - eval: { mode: background, sample_rate: 0.2, annotate: false }   # EV1 judge (judge_model: <model>)
 
 tools:
   - calculator

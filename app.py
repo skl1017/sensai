@@ -45,13 +45,16 @@ from llm.cross_encoder import FastEmbedReranker
 from llm.ollama import Ollama, OllamaEmbedder
 from nodes.cache_node import CacheNode
 from nodes.context_builder import ContextBuilderNode
+from nodes.eval_node import EvalNode
 from nodes.input_guardrail import InputGuardrailNode
+from nodes.logging_node import LoggingNode
 from nodes.output_guardrail import OutputGuardrailNode
 from nodes.persist_node import PersistNode
 from nodes.react_loop import ReActLoopNode
 from nodes.reranker import LLMReranker
 from storage.chunk_store import ChunkStore
 from storage.conversation import ConversationStore
+from storage.event_log import EventLog
 from storage.memory_db import MemoryDB
 from storage.profile import ProfileStore
 from storage.semantic_cache import SemanticCache
@@ -83,6 +86,10 @@ class Deps:
     `persona`/`prompt_version` are the config's root keys. `stream` is
     `False` when an `output_guardrail` entry is `strict` (EV2): the ReAct node
     then streams nothing and the UI shows the checked answer only.
+    `event_log` is the EV3 journal opened from the `logging` entry's `sink`,
+    shared by `LoggingNode` (writes) and `EvalNode` (background updates).
+    `make_llm(model, temperature=...)` builds an extra LLM from the config's
+    `llm:` section (`EvalNode` judge); it is closed with the agent.
     """
 
     llm: ILLM
@@ -95,6 +102,8 @@ class Deps:
     prompt_version: str | None = None
     permissions: PermissionPolicy | None = None
     stream: bool = True
+    event_log: EventLog | None = None
+    make_llm: Callable[..., ILLM] | None = None
 
 
 def flatten(items: Iterable[ITool | list[ITool]]) -> list[ITool]:
@@ -109,12 +118,14 @@ def flatten(items: Iterable[ITool | list[ITool]]) -> list[ITool]:
 
 
 NODES: dict[str, Callable[[dict, Deps], PipelineNode]] = {
+    "logging": LoggingNode.from_config,
     "persist": PersistNode.from_config,
     "input_guardrail": InputGuardrailNode.from_config,
     "cache": CacheNode.from_config,
     "context": ContextBuilderNode.from_config,
     "react": ReActLoopNode.from_config,
     "output_guardrail": OutputGuardrailNode.from_config,
+    "eval": EvalNode.from_config,
 }
 
 TOOLS: dict[str, Callable[[dict, Deps], ITool | list[ITool]]] = {
@@ -302,6 +313,14 @@ def _check_unique_names(tools: list[ITool]) -> None:
         seen.add(tool.name)
 
 
+def _event_log_from_config(cfg: AgentConfig) -> EventLog | None:
+    """Open the EV3 journal named by the first `logging` entry, if any."""
+    for name, params in cfg.pipeline:
+        if name == "logging":
+            return EventLog.open(params.get("sink", "logs/events.jsonl"))
+    return None
+
+
 async def build_agent(
     cfg_path: str,
     ui: UserInterface,
@@ -309,6 +328,7 @@ async def build_agent(
     stores: Stores | None = None,
     config_dir: Path | None = None,
     _ancestors: tuple[Path, ...] = (),
+    prompt_version: str | None = None,
 ) -> Agent:
     """Build an `Agent` from the YAML config at `cfg_path`.
 
@@ -324,6 +344,8 @@ async def build_agent(
     the config file's directory (sub-agents receive the parent's). Tool
     names, sub-agents' `ask_<name>` included, must be unique.
     `_ancestors` is internal to sub-agent recursion (cycle detection).
+    `prompt_version`, when given, overrides the config's root `prompt_version`
+    (offline bench: same config, different prompt version).
     """
     ancestors = (*_ancestors, Path(cfg_path).resolve())
     cfg = await asyncio.to_thread(load_config, cfg_path)
@@ -337,13 +359,24 @@ async def build_agent(
         reranker=build_reranker(cfg.reranker, resolved_llm),
         config_dir=config_dir if config_dir is not None else Path(cfg_path).parent,
         persona=cfg.persona,
-        prompt_version=cfg.prompt_version,
+        prompt_version=prompt_version if prompt_version is not None else cfg.prompt_version,
         stream=not any(
             name == "output_guardrail" and params.get("strict") for name, params in cfg.pipeline
         ),
+        event_log=_event_log_from_config(cfg),
     )
 
     stack = AsyncExitStack()
+
+    def make_llm(model: str, temperature: float | None = None) -> ILLM:
+        llm_cfg = {**cfg.llm.as_dict(), "model": model}
+        if temperature is not None:
+            llm_cfg["options"] = {**(llm_cfg.get("options") or {}), "temperature": temperature}
+        extra = build_llm(llm_cfg)
+        stack.push_async_callback(extra.aclose)
+        return extra
+
+    deps.make_llm = make_llm
     try:
         built: list[ITool | list[ITool]] = []
         for name, params in cfg.tools:
@@ -364,6 +397,11 @@ async def build_agent(
             if factory is None:
                 raise ValueError(f"Unknown node {name!r}. Available: {', '.join(sorted(NODES))}")
             pipeline.append(factory(params, deps))
+        # Registered last so it runs first on close: background judgements finish
+        # (and patch the journal) before the judge LLM is closed.
+        for node in pipeline:
+            if isinstance(node, EvalNode):
+                stack.push_async_callback(node.drain)
 
         return Agent(resolved_llm, tools, pipeline, stack)
     except BaseException:

@@ -23,7 +23,9 @@ from llm.cross_encoder import DEFAULT_MODEL, FastEmbedReranker
 from llm.ollama import Ollama, OllamaEmbedder
 from nodes.cache_node import CacheNode
 from nodes.context_builder import ContextBuilderNode
+from nodes.eval_node import EvalNode
 from nodes.input_guardrail import InputGuardrailNode
+from nodes.logging_node import LoggingNode
 from nodes.output_guardrail import OutputGuardrailNode
 from nodes.persist_node import PersistNode
 from nodes.react_loop import ReActLoopNode
@@ -281,12 +283,14 @@ async def test_build_agent_real_config_with_fake_llm():
     assert "list_dir" in agent.tools
     assert "write_file" in agent.tools
     assert [type(n) for n in agent.pipeline] == [
+        LoggingNode,
         PersistNode,
         InputGuardrailNode,
         CacheNode,
         ContextBuilderNode,
         ReActLoopNode,
         OutputGuardrailNode,
+        EvalNode,
     ]
 
 
@@ -802,3 +806,30 @@ async def test_tutor_sub_agent_builds_from_real_config(tmp_path):
         assert set(agent.tools["ask_tutor"].agent.tools) == {"calculator"}
     finally:
         await agent.aclose()
+
+
+@pytest.mark.usefixtures("no_mcp")
+async def test_build_agent_logging_and_eval_share_the_journal(tmp_path):
+    from storage.event_log import read_events
+
+    sink = tmp_path / "events.jsonl"
+    cfg_path = tmp_path / "agent.yaml"
+    cfg_path.write_text(
+        "llm:\n  provider: ollama\n  model: fake\n"
+        "pipeline:\n"
+        f"  - logging: {{ sink: {sink} }}\n"
+        "  - react\n"
+        "  - eval: { mode: background, sample_rate: 1.0 }\n",
+        encoding="utf-8",
+    )
+    judge_json = '{"relevance": 4, "coherence": 5, "faithfulness": 3, "unsupported_claims": []}'
+    agent = await build_agent(str(cfg_path), _NoopUI(), llm=FakeLLM(["hello", judge_json]))
+    ctx = await agent.run("hi", [])
+    await agent.aclose()  # drains the background judgement before closing
+
+    [event] = read_events(sink)
+    assert event["trace_id"] == ctx.state["trace_id"]
+    assert event["status"] == "ok"
+    assert event["response"] == "hello"
+    assert event["eval_scores"]["relevance"] == 4
+    assert ctx.state["metrics"]["llm_calls"] == 1
