@@ -58,14 +58,15 @@ class SqliteVectorStorage(IVectorStorage):
             if not filters:
                 return []
 
+            # `k = ?`, not LIMIT: some SQLite builds don't pass LIMIT down to vec0.
             placeholders = ",".join("?" * len(filters))
             sql = f"""
                 SELECT chunk_id, distance
                 FROM {collection}
                 WHERE chunk_id IN ({placeholders})
                   AND embedding MATCH ?
+                  AND k = ?
                 ORDER BY distance
-                LIMIT ?
             """
             params = (*filters, query_blob, k)
         else:
@@ -73,8 +74,8 @@ class SqliteVectorStorage(IVectorStorage):
                 SELECT chunk_id, distance
                 FROM {collection}
                 WHERE embedding MATCH ?
+                  AND k = ?
                 ORDER BY distance
-                LIMIT ?
             """
             params = (query_blob, k)
 
