@@ -21,6 +21,7 @@ from app import (
 from core.node import PipelineNode
 from llm.cross_encoder import DEFAULT_MODEL, FastEmbedReranker
 from llm.ollama import Ollama, OllamaEmbedder
+from nodes.cache_node import CacheNode
 from nodes.context_builder import ContextBuilderNode
 from nodes.input_guardrail import InputGuardrailNode
 from nodes.output_guardrail import OutputGuardrailNode
@@ -29,7 +30,7 @@ from nodes.react_loop import ReActLoopNode
 from nodes.reranker import LLMReranker
 from storage.memory_db import MemoryDB
 from storage.stores import InMemoryStores
-from tests.fakes import FakeEmbedder, FakeLLM, FakeTool
+from tests.fakes import FakeEmbedder, FakeLLM, FakeTool, make_semantic_cache
 from tools.agent_tool import AgentTool, SubAgentUI
 
 
@@ -95,6 +96,44 @@ async def test_build_llm_returns_ollama_with_embedder():
     finally:
         await llm.embedder.aclose()
         await llm.aclose()
+
+
+async def test_build_llm_cloud_sends_key_to_chat_only_and_keeps_embeddings_local(monkeypatch):
+    monkeypatch.setenv("TEST_OLLAMA_KEY", "secret-key")
+    llm = build_llm(
+        {
+            "provider": "ollama",
+            "model": "beam",
+            "host": "https://ollama.com",
+            "embed_host": "http://localhost:11434",
+            "api_key_env": "TEST_OLLAMA_KEY",
+        }
+    )
+    try:
+        assert llm.host == "https://ollama.com"
+        assert llm._client.headers["authorization"] == "Bearer secret-key"
+        assert llm.embedder.host == "http://localhost:11434"
+        assert "authorization" not in llm.embedder._client.headers
+    finally:
+        await llm.embedder.aclose()
+        await llm.aclose()
+
+
+async def test_build_llm_without_api_key_env_sends_no_key_and_shares_host(monkeypatch):
+    monkeypatch.setenv("OLLAMA_API_KEY", "must-not-be-sent")
+    llm = build_llm({"provider": "ollama", "model": "m", "host": "http://ollama:11434"})
+    try:
+        assert "authorization" not in llm._client.headers
+        assert llm.embedder.host == "http://ollama:11434"
+    finally:
+        await llm.embedder.aclose()
+        await llm.aclose()
+
+
+def test_build_llm_missing_key_names_the_variable(monkeypatch):
+    monkeypatch.delenv("TEST_OLLAMA_KEY", raising=False)
+    with pytest.raises(ValueError, match="TEST_OLLAMA_KEY is not set"):
+        build_llm({"provider": "ollama", "model": "m", "api_key_env": "TEST_OLLAMA_KEY"})
 
 
 def test_build_llm_rejects_non_ollama_provider():
@@ -234,7 +273,7 @@ async def test_build_agent_real_config_with_fake_llm():
     ui = _NoopUI()
     llm = FakeLLM(["hi"])
     llm.embedder = FakeEmbedder()
-    stores = InMemoryStores(memory_db=MemoryDB())
+    stores = InMemoryStores(memory_db=MemoryDB(), semantic_cache=make_semantic_cache())
     agent = await build_agent("config/agent.yaml", ui, llm=llm, stores=stores)
 
     assert "calculator" in agent.tools
@@ -244,10 +283,30 @@ async def test_build_agent_real_config_with_fake_llm():
     assert [type(n) for n in agent.pipeline] == [
         PersistNode,
         InputGuardrailNode,
+        CacheNode,
         ContextBuilderNode,
         ReActLoopNode,
         OutputGuardrailNode,
     ]
+
+
+@pytest.mark.usefixtures("no_mcp")
+async def test_build_agent_with_cache_entry_builds_cache_node(tmp_path):
+    cfg_path = tmp_path / "agent.yaml"
+    cfg_path.write_text(
+        "llm:\n  provider: ollama\n  model: fake\n"
+        "pipeline:\n  - cache: { threshold: 0.9, ttl_hours: 1, embedding_dim: 256 }\n  - react\n",
+        encoding="utf-8",
+    )
+    llm = FakeLLM([])
+    llm.embedder = FakeEmbedder()
+    stores = InMemoryStores(semantic_cache=make_semantic_cache())
+
+    agent = await build_agent(str(cfg_path), _NoopUI(), llm=llm, stores=stores)
+
+    assert isinstance(agent.pipeline[0], CacheNode)
+    assert agent.pipeline[0].threshold == 0.9
+    assert agent.pipeline[0].cache is stores.semantic_cache
 
 
 @pytest.mark.usefixtures("no_mcp")
@@ -259,7 +318,10 @@ async def test_write_file_requires_approval_in_real_config():
     llm = FakeLLM([])
     llm.embedder = FakeEmbedder()
     agent = await build_agent(
-        "config/agent.yaml", _NoopUI(), llm=llm, stores=InMemoryStores(memory_db=MemoryDB())
+        "config/agent.yaml",
+        _NoopUI(),
+        llm=llm,
+        stores=InMemoryStores(memory_db=MemoryDB(), semantic_cache=make_semantic_cache()),
     )
     assert isinstance(agent.tools["write_file"], ApprovedTool)
     assert not isinstance(agent.tools["read_file"], ApprovedTool)
@@ -273,7 +335,7 @@ async def test_build_agent_real_config_end_to_end_chat_turn():
     ui = _NoopUI()
     llm = FakeLLM(["hi there"])
     llm.embedder = FakeEmbedder()
-    stores = InMemoryStores(memory_db=MemoryDB())
+    stores = InMemoryStores(memory_db=MemoryDB(), semantic_cache=make_semantic_cache())
     agent = await build_agent("config/agent.yaml", ui, llm=llm, stores=stores)
 
     ctx = await chat_turn(agent, stores, "s1", "hello")

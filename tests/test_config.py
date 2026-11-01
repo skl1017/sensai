@@ -31,6 +31,7 @@ def test_default_config_loads():
     assert [name for name, _ in cfg.pipeline] == [
         "persist",
         "input_guardrail",
+        "cache",
         "context",
         "react",
         "output_guardrail",

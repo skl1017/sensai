@@ -13,7 +13,7 @@ pipeline:                        # l'ordre de la liste = l'ordre d'exécution
   - logging:          { sink: logs/events.jsonl, redact_inputs: false }
   - persist:          { dir: sessions/, persist_blocked: false }
   - input_guardrail:  { max_chars: 4000, rules: config/guardrails.yaml, scope_check: false }
-  - cache:            { threshold: 0.92, ttl_hours: 24, mode: first_turn_only }
+  - cache:            { threshold: 0.96, ttl_hours: 24, mode: first_turn_only }
   - context:
       sections: [persona, profile, memory, artifact, rag, fewshot]
       budget: { reserve_output: 1024, trigger_ratio: 0.8, keep_last_turns: 4 }
