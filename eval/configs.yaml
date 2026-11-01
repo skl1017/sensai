@@ -1,0 +1,8 @@
+# Configurations compared by `python -m eval.run`.
+# Keys: name, config (agent yaml), prompt_version (optional), model (optional LLM override).
+- name: prompt-v1
+  config: config/agent.eval.yaml
+  prompt_version: v1
+- name: prompt-v2
+  config: config/agent.eval.yaml
+  prompt_version: v2

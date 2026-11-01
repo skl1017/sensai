@@ -120,6 +120,7 @@ class RAGSection(ContextSection):
                 "document_date": chunk.document_date,
                 "chunk_index": chunk.chunk_index,
                 "score": score,
+                "text": chunk.text,
             }
             for i, (chunk, score) in enumerate(hits, start=1)
         ]

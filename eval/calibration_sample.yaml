@@ -1,0 +1,50 @@
+# Échantillon de calibration du juge (issue #72).
+#
+# À remplir À LA MAIN avant de lancer `python -m eval.calibration`.
+# Les notes humaines (`human`) doivent rester à `null` tant que vous ne les
+# avez pas attribuées vous-même : un item dont les trois notes sont `null`
+# est ignoré par la calibration.
+#
+# Échelle (entiers de 0 à 5) :
+#   relevance    : la réponse répond-elle à la question ?
+#                  0 = hors sujet, 5 = répond complètement et précisément.
+#   coherence    : la réponse est-elle claire, bien structurée et cohérente ?
+#                  0 = incompréhensible ou self-contradictoire, 5 = limpide.
+#   faithfulness : la réponse ne contient-elle que ce qui est étayé par les
+#                  sources fournies ?
+#                  0 = invente largement, 5 = entièrement fidèle aux sources.
+#                  Mettre `null` quand la liste `sources` est vide : il n'y a
+#                  alors rien contre quoi vérifier la fidélité.
+#
+# Pour chaque item, notez la réponse telle qu'elle est, sans la corriger.
+
+items:
+  - question: "Quel est le délai de rétractation pour un achat en ligne ?"
+    answer: "Vous disposez de 14 jours calendaires après réception du bien pour vous rétracter, sans avoir à justifier votre décision."
+    sources:
+      - "Code de la consommation, art. L221-18 : délai de rétractation de 14 jours."
+    human: {relevance: null, coherence: null, faithfulness: null}
+
+  - question: "Comment réinitialiser mon mot de passe ?"
+    answer: "Cliquez sur « Mot de passe oublié » sur la page de connexion, puis suivez le lien reçu par e-mail."
+    sources:
+      - "Guide utilisateur : section Compte, réinitialisation du mot de passe via e-mail."
+      - "FAQ : le lien de réinitialisation est valable 30 minutes."
+    human: {relevance: null, coherence: null, faithfulness: null}
+
+  - question: "Quelle est la capitale de l'Australie ?"
+    answer: "La capitale de l'Australie est Canberra, et non Sydney comme on le croit souvent."
+    sources: []
+    human: {relevance: null, coherence: null, faithfulness: null}
+
+  - question: "Quels sont les avantages du stockage par colonnes pour l'analyse de données ?"
+    answer: "Le stockage par colonnes réduit les lectures inutiles, car seules les colonnes demandées sont lues, et il compresse mieux les valeurs d'une même colonne. Il est donc adapté aux requêtes analytiques qui agrègent beaucoup de lignes."
+    sources:
+      - "Note interne : les bases orientées colonnes lisent uniquement les colonnes sollicitées."
+    human: {relevance: null, coherence: null, faithfulness: null}
+
+  - question: "Le service est-il disponible le week-end ?"
+    answer: "Le support client répond du lundi au vendredi, de 9h à 18h. Les demandes envoyées le week-end sont traitées le lundi suivant."
+    sources:
+      - "Page Contact : support disponible du lundi au vendredi, 9h-18h."
+    human: {relevance: null, coherence: null, faithfulness: null}

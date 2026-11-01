@@ -1,0 +1,27 @@
+# Pipeline used by the offline bench (`python -m eval.run`): same shape as
+# agent.yaml minus persist, cache, logging and eval (the judge is called
+# explicitly by the bench). Tools are read-only / side-effect free: no
+# approval-requiring tool (the bench UI answers "no" to every approval), no MCP.
+
+llm:
+  provider: ollama
+  model: qwen2.5:3b
+  embed_model: nomic-embed-text
+  host: http://localhost:11434
+  max_context_tokens: 8192
+
+persona: default
+prompt_version: v2
+
+pipeline:
+  - input_guardrail: { max_chars: 4000, rules: config/guardrails.yaml, scope_check: false }
+  - context:
+      sections: [persona, rag]
+      budget: { reserve_output: 1024, trigger_ratio: 0.8, keep_last_turns: 4 }
+      rewrite_query: false
+      rag: { k: 20, min_score: 0.3, rerank: false, top_k: 4 }
+  - react: { max_iterations: 8, tool_timeout: 30, max_observation_chars: 4000 }
+  - output_guardrail: { strict: false, pii: [email, phone, iban, card], rules: config/guardrails.yaml }
+
+tools:
+  - calculator

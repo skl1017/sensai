@@ -13,3 +13,4 @@ dist/
 !.env.example
 .docs/
 node_modules/
+eval/results/

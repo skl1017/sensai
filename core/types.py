@@ -48,7 +48,8 @@ Reserved `ctx.state` keys
   messages it covers, and their hash to detect another branch).
 - `context_stats`: written by `ContextBuilderNode`; read by `LoggingNode`.
   `{tokens_before, tokens_after, compressed}`.
-- `retrieved_chunks`: written by `ContextBuilderNode`; read by `EvalNode`.
+- `retrieved_chunks`: written by `ContextBuilderNode` (`RAGSection`, entries carry the chunk
+  `text`); read by `EvalNode` as faithfulness sources.
   Injected RAG chunks: `{index, chunk_id, source_id, source_name,
   chunk_index, score}`, `index` being the `[n]` the model cites.
 - `citations`: written by `ContextBuilderNode`; read by UI, `EvalNode`.
