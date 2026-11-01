@@ -161,6 +161,7 @@ async def test_build_records_retrieved_chunks_in_state(embedder):
             "source_name": "rh.pdf",
             "chunk_index": 3,
             "score": 0.9,
+            "text": "texte c1",
         },
         {
             "index": 2,
@@ -169,6 +170,7 @@ async def test_build_records_retrieved_chunks_in_state(embedder):
             "source_name": None,
             "chunk_index": 0,
             "score": 0.6,
+            "text": "texte c2",
         },
     ]
 

@@ -76,6 +76,7 @@ class RAGSection(ContextSection):
                 "source_name": chunk.source_name,
                 "chunk_index": chunk.chunk_index,
                 "score": score,
+                "text": chunk.text,
             }
             for i, (chunk, score) in enumerate(hits, start=1)
         ]
