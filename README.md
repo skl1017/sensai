@@ -57,6 +57,27 @@ docker compose up -d        # ollama on :11434 + one-shot model pull + searxng o
 docker compose logs -f ollama-pull
 ```
 
+### Ollama Cloud (optional)
+
+The chat model can run on Ollama Cloud while embeddings stay on the local server. Create a key at
+<https://ollama.com/settings/keys>, set `OLLAMA_API_KEY` in `.env`, then change the `llm` section
+of `config/agent.yaml`:
+
+```yaml
+llm:
+  provider: ollama
+  model: beam                           # a name listed by https://ollama.com/api/tags
+  host: https://ollama.com
+  embed_host: http://localhost:11434    # embeddings stay local
+  api_key_env: OLLAMA_API_KEY           # name of the variable, never the key itself
+  embed_model: nomic-embed-text
+  max_context_tokens: 8192
+```
+
+Without `api_key_env`, no key is sent. If the variable is not set, startup fails with an error
+naming it. Most cloud models require usage credits (`HTTP 402` otherwise). Questions, retrieved
+document passages and tool results are sent to Ollama, so review what your documents contain first.
+
 ### Web search (SearXNG)
 
 The `web_search` tool queries a SearXNG instance at `http://localhost:8080` (the `url` of

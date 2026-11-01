@@ -96,6 +96,44 @@ async def test_build_llm_returns_ollama_with_embedder():
         await llm.aclose()
 
 
+async def test_build_llm_cloud_sends_key_to_chat_only_and_keeps_embeddings_local(monkeypatch):
+    monkeypatch.setenv("TEST_OLLAMA_KEY", "secret-key")
+    llm = build_llm(
+        {
+            "provider": "ollama",
+            "model": "beam",
+            "host": "https://ollama.com",
+            "embed_host": "http://localhost:11434",
+            "api_key_env": "TEST_OLLAMA_KEY",
+        }
+    )
+    try:
+        assert llm.host == "https://ollama.com"
+        assert llm._client.headers["authorization"] == "Bearer secret-key"
+        assert llm.embedder.host == "http://localhost:11434"
+        assert "authorization" not in llm.embedder._client.headers
+    finally:
+        await llm.embedder.aclose()
+        await llm.aclose()
+
+
+async def test_build_llm_without_api_key_env_sends_no_key_and_shares_host(monkeypatch):
+    monkeypatch.setenv("OLLAMA_API_KEY", "must-not-be-sent")
+    llm = build_llm({"provider": "ollama", "model": "m", "host": "http://ollama:11434"})
+    try:
+        assert "authorization" not in llm._client.headers
+        assert llm.embedder.host == "http://ollama:11434"
+    finally:
+        await llm.embedder.aclose()
+        await llm.aclose()
+
+
+def test_build_llm_missing_key_names_the_variable(monkeypatch):
+    monkeypatch.delenv("TEST_OLLAMA_KEY", raising=False)
+    with pytest.raises(ValueError, match="TEST_OLLAMA_KEY is not set"):
+        build_llm({"provider": "ollama", "model": "m", "api_key_env": "TEST_OLLAMA_KEY"})
+
+
 def test_build_llm_rejects_non_ollama_provider():
     with pytest.raises(ValueError):
         build_llm({"provider": "openai", "model": "gpt-4"})

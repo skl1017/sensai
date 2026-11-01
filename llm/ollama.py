@@ -123,7 +123,7 @@ class OllamaEmbedder(IEmbedder):
 
 
 class Ollama(ILLM):
-    """`ILLM` adapter for a local Ollama server."""
+    """`ILLM` adapter for an Ollama server, local or cloud (`api_key` sent as a bearer token)."""
 
     def __init__(
         self,
@@ -133,14 +133,18 @@ class Ollama(ILLM):
         max_context_tokens: int = 8192,
         options: dict | None = None,
         client: httpx.AsyncClient | None = None,
+        api_key: str | None = None,
     ) -> None:
         self.model = model
         self.embedder = embedder
         self.host = host
         self.max_context_tokens = max_context_tokens
         self._options = {"num_ctx": max_context_tokens, **(options or {})}
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
         self._client = (
-            client if client is not None else httpx.AsyncClient(base_url=host, timeout=None)
+            client
+            if client is not None
+            else httpx.AsyncClient(base_url=host, timeout=None, headers=headers)
         )
 
     @property

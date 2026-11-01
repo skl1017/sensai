@@ -102,8 +102,8 @@ class SqliteVectorStorage(IVectorStorage):
                 SELECT chunk_id, distance
                 FROM {collection}
                 WHERE embedding MATCH ?
+                  AND k = ?
                 ORDER BY distance
-                LIMIT ?
             """
             with self._engine.connect() as conn:
                 rows = conn.exec_driver_sql(sql, (query_blob, k)).fetchall()

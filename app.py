@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import os
 from collections.abc import Callable, Iterable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
@@ -122,14 +123,27 @@ TOOLS: dict[str, Callable[[dict, Deps], ITool | list[ITool]]] = {
 
 
 def build_llm(llm_cfg: dict) -> Ollama:
-    """Build the `Ollama` adapter (and its embedder) from the `llm:` config section."""
+    """Build the `Ollama` adapter (and its embedder) from the `llm:` config section.
+
+    `api_key_env` names the environment variable holding the chat API key (the
+    key itself never sits in the config); `embed_host` lets embeddings stay on
+    another server than the chat, and defaults to `host`. The embedder never
+    receives the key.
+    """
     cfg = dict(llm_cfg)
     provider = cfg.pop("provider", None)
     if provider != "ollama":
         raise ValueError(f"Unsupported llm provider {provider!r}: only 'ollama' is supported")
 
+    api_key_env = cfg.pop("api_key_env", None)
+    if api_key_env is not None:
+        cfg["api_key"] = os.environ.get(api_key_env)
+        if not cfg["api_key"]:
+            raise ValueError(f"llm.api_key_env: environment variable {api_key_env} is not set")
+
     embed_model = cfg.pop("embed_model", None)
-    embedder_kwargs = {"host": cfg.get("host", "http://localhost:11434")}
+    default_host = cfg.get("host", "http://localhost:11434")
+    embedder_kwargs = {"host": cfg.pop("embed_host", default_host)}
     if embed_model is not None:
         embedder_kwargs["model"] = embed_model
     embedder = OllamaEmbedder(**embedder_kwargs)
