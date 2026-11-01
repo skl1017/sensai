@@ -106,7 +106,7 @@ async def test_search_returns_source_file_name(engine):
         source = IngestedFile(
             file_name="rh.pdf",
             file_path="/docs/rh.pdf",
-            last_modified=datetime(2026, 1, 1),
+            last_modified=datetime(2026, 3, 14, 9, 30),
             content_hash="h",
         )
         session.add(source)
@@ -119,6 +119,7 @@ async def test_search_returns_source_file_name(engine):
     ((chunk, _),) = await store.search([1.0] * DIM, k=1)
 
     assert chunk.source_name == "rh.pdf"
+    assert chunk.document_date == "2026-03-14"
 
 
 @pytest.mark.asyncio
@@ -131,6 +132,7 @@ async def test_search_source_name_is_none_without_ingested_file(engine):
     ((chunk, _),) = await store.search([1.0] * DIM, k=1)
 
     assert chunk.source_name is None
+    assert chunk.document_date is None
 
 
 @pytest.mark.asyncio

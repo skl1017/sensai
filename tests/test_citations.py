@@ -77,7 +77,12 @@ def rag_agent(answer: str, hits) -> tuple[Agent, FakeLLM]:
 def hit(chunk_id: str, text: str, source_name: str):
     return (
         SimpleNamespace(
-            id=chunk_id, text=text, source_id=1, source_name=source_name, chunk_index=2
+            id=chunk_id,
+            text=text,
+            source_id=1,
+            source_name=source_name,
+            document_date=None,
+            chunk_index=2,
         ),
         0.8,
     )

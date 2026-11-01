@@ -36,12 +36,14 @@ def make_chunk(
     source_id: str = "src1",
     source_name: str | None = None,
     chunk_index: int = 0,
+    document_date: str | None = None,
 ):
     return SimpleNamespace(
         id=chunk_id,
         text=text or f"texte {chunk_id}",
         source_id=source_id,
         source_name=source_name,
+        document_date=document_date,
         chunk_index=chunk_index,
     )
 
@@ -145,7 +147,12 @@ async def test_build_passes_query_vector_and_k_to_store(embedder):
 @pytest.mark.asyncio
 async def test_build_records_retrieved_chunks_in_state(embedder):
     hits = [
-        (make_chunk("c1", source_id="A", source_name="rh.pdf", chunk_index=3), 0.9),
+        (
+            make_chunk(
+                "c1", source_id="A", source_name="rh.pdf", chunk_index=3, document_date="2026-03-14"
+            ),
+            0.9,
+        ),
         (make_chunk("c2", source_id="B"), 0.6),
     ]
     section, _ = make_section(embedder, hits=hits)
@@ -159,6 +166,7 @@ async def test_build_records_retrieved_chunks_in_state(embedder):
             "chunk_id": "c1",
             "source_id": "A",
             "source_name": "rh.pdf",
+            "document_date": "2026-03-14",
             "chunk_index": 3,
             "score": 0.9,
         },
@@ -167,10 +175,25 @@ async def test_build_records_retrieved_chunks_in_state(embedder):
             "chunk_id": "c2",
             "source_id": "B",
             "source_name": None,
+            "document_date": None,
             "chunk_index": 0,
             "score": 0.6,
         },
     ]
+
+
+@pytest.mark.asyncio
+async def test_build_renders_document_date_attribute_when_known(embedder):
+    hits = [
+        (make_chunk("c1", "Avec date.", source_name="rh.pdf", document_date="2026-03-14"), 0.9),
+        (make_chunk("c2", "Sans date."), 0.7),
+    ]
+    section, _ = make_section(embedder, hits=hits)
+
+    text = await section.build(make_ctx())
+
+    assert '<document id="1" source="rh.pdf" date="2026-03-14">\nAvec date.' in text
+    assert '<document id="2">\nSans date.' in text
 
 
 @pytest.mark.asyncio

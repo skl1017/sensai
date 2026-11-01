@@ -15,6 +15,7 @@ class ChunkData:
     doc_category: str | None
     created_at: str
     source_name: str | None = None
+    document_date: str | None = None  # ISO date of the source file's last modification
 
 
 class ChunkStore:
@@ -60,19 +61,26 @@ class ChunkStore:
             return []
         with Session(self._engine) as session:
             rows = session.exec(
-                select(Chunk, IngestedFile.file_name)
+                select(Chunk, IngestedFile.file_name, IngestedFile.last_modified)
                 .join(IngestedFile, Chunk.source_id == IngestedFile.id, isouter=True)
                 .where(Chunk.id.in_([h.chunk_id for h in hits]))
             ).all()
-        by_id = {chunk.id: (chunk, name) for chunk, name in rows}
+        by_id = {chunk.id: (chunk, name, modified) for chunk, name, modified in rows}
         return [
             (
                 ChunkData(
-                    r.id, r.text, r.source_id, r.chunk_index, r.doc_category, r.created_at, name
+                    r.id,
+                    r.text,
+                    r.source_id,
+                    r.chunk_index,
+                    r.doc_category,
+                    r.created_at,
+                    name,
+                    modified.date().isoformat() if modified else None,
                 ),
                 self._similarity(h.distance),
             )
             for h in hits
             if (entry := by_id.get(h.chunk_id)) is not None
-            for r, name in [entry]
+            for r, name, modified in [entry]
         ]

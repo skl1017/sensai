@@ -50,6 +50,8 @@ class RAGSection(ContextSection):
         attrs = f'id="{index}"'
         if chunk.source_name:
             attrs += f' source="{escape(chunk.source_name)}"'
+        if chunk.document_date:
+            attrs += f' date="{escape(chunk.document_date)}"'
         text = chunk.text.replace("</document>", "</ document>")
         return f"<document {attrs}>\n{text}\n</document>"
 
@@ -74,6 +76,7 @@ class RAGSection(ContextSection):
                 "chunk_id": chunk.id,
                 "source_id": chunk.source_id,
                 "source_name": chunk.source_name,
+                "document_date": chunk.document_date,
                 "chunk_index": chunk.chunk_index,
                 "score": score,
             }
