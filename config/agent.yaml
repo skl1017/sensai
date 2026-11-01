@@ -19,6 +19,7 @@ prompt_version: v2
 
 pipeline:                      # list order = execution order (wiki §9)
   - persist: { dir: sessions/, persist_blocked: false }
+  - cache: { threshold: 0.96, ttl_hours: 24, mode: first_turn_only }   # bench/cache_threshold.md
   - context:
       sections: [persona, profile, memory, fewshot, rag]
       budget: { reserve_output: 1024, trigger_ratio: 0.8, keep_last_turns: 4 }
