@@ -22,13 +22,17 @@ a new latest file) or profile invalidates it. Resolved like `PersonaSection`.
 Never read nor written (just `next`):
 - `mode: first_turn_only` (default) when the history already holds a user or
   assistant message: a follow-up depends on that history. `always` lifts this.
+- a turn with `state["rag_filters"]`: the answer depends on those filters, and
+  an entry stored without them could cite documents they exclude.
 - embedding or lookup failure: treated as a miss (warning logged).
 
 Never written:
 - empty answer, blocked request (`state["blocked"]`), truncated ReAct loop
   (`state["react_truncated"]`);
 - a turn that used tools (`state["react_trace"]` non-empty): the answer may
-  depend on changing data or side effects.
+  depend on changing data or side effects;
+- a search filtered from the question (`state["rag_applied_filters"]`): a close
+  question could carry other dates or another file.
 A write error is logged, never raised.
 
 Guard: embeddings do not separate a sentence from its negation (still 0.99 at
@@ -143,6 +147,9 @@ class CacheNode(PipelineNode):
     async def handle(self, ctx: Context, next: Next) -> Context:
         ctx.state["cache_hit"] = False
 
+        if ctx.state.get("rag_filters"):
+            return await next(ctx)
+
         if self.mode == "first_turn_only" and any(
             m.role in ("user", "assistant") for m in ctx.messages
         ):
@@ -179,6 +186,7 @@ class CacheNode(PipelineNode):
             or state.get("blocked")
             or state.get("react_truncated")
             or state.get("react_trace")
+            or state.get("rag_applied_filters")
         ):
             return ctx
 

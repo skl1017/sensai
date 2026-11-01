@@ -74,6 +74,19 @@ async def test_search_with_filters_restricts_to_allowed_ids(storage):
     assert results[0].chunk_id == "allowed"
 
 
+@pytest.mark.parametrize("allowed", [["far"], ["far", "farther"]])
+async def test_search_with_filters_applies_k_among_allowed_ids_only(storage, allowed):
+    await storage.add("close", [1.0, 0.0, 0.0, 0.0])
+    await storage.add("far", [0.0, 1.0, 0.0, 0.0])
+    await storage.add("farther", [0.0, 0.0, 0.0, 1.0])
+
+    results = await storage.search(
+        collection="chunk_vectors", vector=[0.9, 0.4, 0.0, 0.0], k=1, filters=allowed
+    )
+
+    assert [r.chunk_id for r in results] == ["far"]
+
+
 @pytest.mark.asyncio
 async def test_search_with_empty_filters_short_circuits(storage):
     await storage.add("chunk_1", [1.0, 0.0, 0.0, 0.0])
@@ -149,6 +162,19 @@ async def test_filtered_search_is_not_cut_by_closer_ids_outside_filter(storage):
     )
 
     assert [r.chunk_id for r in results] == ["inside"]
+
+
+@pytest.mark.asyncio
+async def test_filtered_search_works_above_vec0_k_limit(storage):
+    # vec0 refuse k > 4096 : k ne doit pas dépendre du nombre de lignes
+    for i in range(4097):
+        await storage.add(f"chunk_{i}", [1.0, float(i), 0.0, 0.0])
+
+    results = await storage.search(
+        collection="chunk_vectors", vector=[1.0, 0.0, 0.0, 0.0], k=2, filters=["chunk_9", "chunk_4"]
+    )
+
+    assert [r.chunk_id for r in results] == ["chunk_4", "chunk_9"]
 
 
 @pytest.mark.parametrize("table", ["", "1bad", "bad-name", "x; DROP TABLE y", "a b"])

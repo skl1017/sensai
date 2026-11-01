@@ -378,6 +378,7 @@ async def chat_turn(
     text: str,
     persona: str | None = None,
     parent_id: str | None = None,
+    rag_filters: dict | None = None,
 ) -> Context:
     """Shared entry point for CLI / Web / scheduler (wiki §9.2, X2).
 
@@ -388,7 +389,9 @@ async def chat_turn(
     there). `persona`, when given, seeds `state["persona"]` for this turn
     only; otherwise `PersonaSection` falls back to the config's root
     `persona`. The history is the same either way, so switching persona
-    between turns never loses it (A5). All store reads are synchronous I/O, so they go through
+    between turns never loses it (A5). `rag_filters`, when given, seeds
+    `state["rag_filters"]` for this turn only (`file_name`, `date_from`, `date_to`,
+    see `RAGSection`). All store reads are synchronous I/O, so they go through
     `asyncio.to_thread`.
 
     This function no longer appends the exchange: `PersistNode`, wired into
@@ -414,4 +417,6 @@ async def chat_turn(
     }
     if persona is not None:
         state["persona"] = persona
+    if rag_filters is not None:
+        state["rag_filters"] = rag_filters
     return await agent.run(text, history, state)

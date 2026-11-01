@@ -77,7 +77,12 @@ def rag_agent(answer: str, hits) -> tuple[Agent, FakeLLM]:
 def hit(chunk_id: str, text: str, source_name: str):
     return (
         SimpleNamespace(
-            id=chunk_id, text=text, source_id=1, source_name=source_name, chunk_index=2
+            id=chunk_id,
+            text=text,
+            source_id=1,
+            source_name=source_name,
+            document_date=None,
+            chunk_index=2,
         ),
         0.8,
     )
@@ -95,6 +100,16 @@ async def test_cited_source_recorded_for_answer_on_ingested_document():
     assert '<document id="1" source="rh.pdf">' in system
     assert [c["source_name"] for c in ctx.state["citations"]["cited"]] == ["rh.pdf"]
     assert ctx.state["citations"]["invalid"] == []
+
+
+async def test_invalid_rag_filter_sends_no_document_but_still_answers():
+    agent, llm = rag_agent("Je ne sais pas.", [hit("c1", "Secret.", "rh.pdf")])
+
+    ctx = await agent.run("Question ?", [], {"rag_filters": {"date_from": "hier"}})
+
+    assert ctx.response == "Je ne sais pas."
+    assert "Secret." not in "".join(m.content for m in llm.calls[0]["messages"])
+    assert "retrieved_chunks" not in ctx.state
 
 
 async def test_hallucinated_citation_reported_as_invalid():

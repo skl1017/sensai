@@ -80,23 +80,22 @@ class SqliteVectorStorage(IVectorStorage):
             if not filters:
                 return []
 
-            # sqlite-vec applies the IN filter after the KNN scan, so a LIMIT would
-            # cut the candidates before filtering: scan every row, then truncate.
+            # A one-item IN becomes `=`, which vec0 applies after the k nearest are
+            # picked, losing the item unless it's among them: repeating it keeps the IN.
+            # A k covering every row instead would fail above vec0's limit of 4096.
+            if len(filters) == 1:
+                filters = filters * 2
             placeholders = ",".join("?" * len(filters))
+            sql = f"""
+                SELECT chunk_id, distance
+                FROM {collection}
+                WHERE chunk_id IN ({placeholders})
+                  AND embedding MATCH ?
+                  AND k = ?
+                ORDER BY distance
+            """
             with self._engine.connect() as conn:
-                total = conn.exec_driver_sql(f"SELECT COUNT(*) FROM {collection}").scalar()
-                rows = conn.exec_driver_sql(
-                    f"""
-                    SELECT chunk_id, distance
-                    FROM {collection}
-                    WHERE chunk_id IN ({placeholders})
-                      AND embedding MATCH ?
-                      AND k = ?
-                    ORDER BY distance
-                    """,
-                    (*filters, query_blob, total),
-                ).fetchall()
-            rows = rows[:k]
+                rows = conn.exec_driver_sql(sql, (*filters, query_blob, k)).fetchall()
         else:
             sql = f"""
                 SELECT chunk_id, distance

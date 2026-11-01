@@ -510,6 +510,20 @@ async def test_chat_turn_state_and_history_threading():
     assert node.histories[1] == [("user", "one"), ("assistant", "reply to one")]
 
 
+async def test_chat_turn_seeds_rag_filters_for_this_turn_only():
+    from core.agent import Agent
+    from storage.stores import InMemoryStores
+
+    node, stores = _RecordingNode(), InMemoryStores()
+    agent = Agent(FakeLLM([]), [], [PersistNode(stores.conversation), node])
+
+    await chat_turn(agent, stores, "s1", "one", rag_filters={"file_name": "rh.pdf"})
+    await chat_turn(agent, stores, "s1", "two")
+
+    assert node.states[0]["rag_filters"] == {"file_name": "rh.pdf"}
+    assert "rag_filters" not in node.states[1]
+
+
 async def test_chat_turn_parent_id_creates_sibling_branch():
     from core.agent import Agent
     from storage.stores import InMemoryStores

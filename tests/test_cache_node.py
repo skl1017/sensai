@@ -127,6 +127,18 @@ async def test_different_scope_is_a_miss(cache):
     assert result.response == "B"
 
 
+async def test_rag_filters_neither_read_nor_write(cache):
+    llm = FakeLLM(["A", "B"])
+    agent = make_agent(llm, cache)
+    await agent.run("hello there", [])  # populates the cache
+
+    result = await agent.run("hello there", [], {"rag_filters": {"file_name": "rh.pdf"}})
+
+    assert result.state["cache_hit"] is False
+    assert result.response == "B"  # no read
+    assert await stored_count(cache) == 1  # no write
+
+
 # -- mode --------------------------------------------------------------------------
 
 
@@ -248,6 +260,17 @@ async def test_answer_after_tool_use_is_not_stored(cache):
 
     assert result.response == "It is 12:00."
     assert len(tool.calls) == 1
+    assert await stored_count(cache) == 0
+
+
+async def test_answer_from_a_filtered_search_is_not_stored(cache):
+    async def next_fn(ctx):
+        ctx.response = "A"
+        ctx.state["rag_applied_filters"] = {"date_to": "2023-12-31"}
+        return ctx
+
+    await run_with_next(cache, next_fn)
+
     assert await stored_count(cache) == 0
 
 
