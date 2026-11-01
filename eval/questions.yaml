@@ -1,0 +1,22 @@
+# Evaluation questions. `sources` (optional) = reference passages the judge uses to
+# check faithfulness; retrieved RAG chunks are added automatically.
+- question: "Combien font 1234 * 5678 - 91 ?"
+- question: "Explique en trois phrases ce qu'est une table de hachage."
+- question: "Quelle est la différence entre un processus et un thread ?"
+- question: "Qu'est-ce que la complexité algorithmique O(n log n) ? Donne un exemple."
+- question: "Comment fonctionne un cache sémantique pour un agent conversationnel ?"
+  sources:
+    - "Un cache sémantique compare l'embedding de la nouvelle question à ceux des questions déjà vues ; si la similarité dépasse un seuil, la réponse stockée est renvoyée sans appeler le modèle."
+- question: "À quoi sert la boucle ReAct dans un agent ?"
+  sources:
+    - "ReAct alterne raisonnement et actions : le modèle appelle un outil, reçoit l'observation, puis continue jusqu'à produire une réponse finale, avec un nombre d'itérations maximal."
+- question: "Résous l'équation 3x + 7 = 22."
+- question: "Pourquoi un agent doit-il demander une approbation avant d'écrire un fichier ?"
+  sources:
+    - "Les outils à effets de bord (écriture de fichier, exécution de code) passent par une approbation humaine ; par défaut tout est refusé."
+- question: "Donne une définition de la RAG (retrieval-augmented generation)."
+  sources:
+    - "La RAG récupère des passages pertinents dans une base vectorielle et les ajoute au contexte du modèle avant la génération."
+- question: "Quelle est la dérivée de x^3 + 2x ?"
+- question: "Résume en deux phrases le principe d'une architecture à middleware."
+- question: "Quelle est la capitale de l'Australie ?"
