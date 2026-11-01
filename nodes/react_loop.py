@@ -47,7 +47,9 @@ reuse the previous observation, change its arguments, or answer.
 Observability: `on_token(text)` is called with every non-empty streamed text
 fragment; `on_event(kind, data)` is called for `"thought"`, `"tool_call"`,
 `"observation"` and `"final"` (see `core/ui.py` for the payload shapes).
-Both callbacks may be sync or async and default to no-ops.
+Both callbacks may be sync or async and default to no-ops. `from_config` only
+wires `on_token` when `deps.stream` is truthy (default `True`): a strict
+`OutputGuardrailNode` turns streaming off so nothing unchecked is shown.
 """
 
 from __future__ import annotations
@@ -98,7 +100,10 @@ class ReActLoopNode(PipelineNode):
         ui = getattr(deps, "ui", None)
         extra = {}
         if ui is not None:
-            extra = {"on_token": ui.on_token, "on_event": ui.on_event}
+            extra = {"on_event": ui.on_event}
+            # `deps.stream = False` (strict output guardrail): nothing is streamed.
+            if getattr(deps, "stream", True):
+                extra["on_token"] = ui.on_token
         return cls(**params, **extra)
 
     async def handle(self, ctx: Context, next: Next) -> Context:

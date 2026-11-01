@@ -1,0 +1,61 @@
+# Labelled question pairs for the semantic cache threshold (issue #61).
+#
+# same: true   -> paraphrases that must share one cached answer (cache hit wanted).
+# same: false  -> hard negatives that look alike but need a different answer
+#                 (a cache hit here is a false positive, the worst error).
+#
+# Mostly French (the app is French), some English. Run with:
+#   python -m eval.cache_threshold --pairs eval/cache_pairs.yaml
+pairs:
+  # --- same: true (paraphrases, typos, reordering, register) ---
+  - {a: "Quelle est la capitale de la France ?", b: "C'est quoi la capitale de la France ?", same: true}
+  - {a: "Quelle est la capitale de la France ?", b: "capitale de la France ?", same: true}
+  - {a: "comment installer python sur windows", b: "Comment installer Python sous Windows ?", same: true}
+  - {a: "Comment je fais pour installer python sur windows", b: "comment installer python sur windows", same: true}
+  - {a: "combien font 2+2 ?", b: "2+2 ça fait combien ?", same: true}
+  - {a: "Peux-tu me donner la recette des crêpes ?", b: "recette des crepes svp", same: true}
+  - {a: "Quelle heure est-il à Tokyo ?", b: "Il est quelle heure à Tokyo ?", same: true}
+  - {a: "Qui a écrit Les Misérables ?", b: "Les Misérables, c'est écrit par qui ?", same: true}
+  - {a: "Quelle est la formule chimique de l'eau ?", b: "Quelle est la formule de l'eau ?", same: true}
+  - {a: "Comment créer une liste en Python ?", b: "Python : comment on crée une liste ?", same: true}
+  - {a: "Quand a eu lieu la Révolution française ?", b: "En quelle année a eu lieu la Révolution française ?", same: true}
+  - {a: "Quelle est la différence entre un virus et une bactérie ?", b: "C'est quoi la différence entre virus et bactérie ?", same: true}
+  - {a: "Quelle est la racine carrée de 144 ?", b: "racine carrée de 144 ?", same: true}
+  - {a: "Comment dit-on merci en espagnol ?", b: "Comment on dit merci en espagnol ?", same: true}
+  - {a: "Qu'est-ce que le théorème de Pythagore ?", b: "C'est quoi le théorème de Pythagore ?", same: true}
+  - {a: "Quel est le plus grand océan du monde ?", b: "quel est le plus grand ocean du monde", same: true}
+  - {a: "Explique-moi la photosynthèse", b: "Peux-tu m'expliquer la photosynthèse ?", same: true}
+  - {a: "Combien de continents y a-t-il sur Terre ?", b: "Combien il y a de continents sur la Terre ?", same: true}
+  - {a: "Quelle est la distance entre la Terre et la Lune ?", b: "Quelle est la distance Terre-Lune ?", same: true}
+  - {a: "What is the capital of France?", b: "what's France's capital city?", same: true}
+  - {a: "How do I reset my password?", b: "how can I reset my pwd", same: true}
+  - {a: "How many legs does a spider have?", b: "how many legs do spiders have", same: true}
+  - {a: "What does HTTP stand for?", b: "HTTP stands for what?", same: true}
+  - {a: "Donne-moi un synonyme de rapide", b: "un synonyme de rapide ?", same: true}
+
+  # --- same: false (hard negatives: same template, one detail changes the answer) ---
+  - {a: "combien font 2+2 ?", b: "combien font 2+3 ?", same: false}
+  - {a: "Quelle est la capitale de la France ?", b: "Quelle est la capitale de l'Italie ?", same: false}
+  - {a: "comment installer python sur windows", b: "comment installer python sur linux", same: false}
+  - {a: "Quelle est la distance Terre-Lune ?", b: "Quelle est la distance Terre-Soleil ?", same: false}
+  - {a: "Est-ce que je dois réviser avant l'examen ?", b: "Est-ce que je ne dois pas réviser avant l'examen ?", same: false}
+  - {a: "Comment je peux ouvrir un compte bancaire ?", b: "Comment je peux fermer un compte bancaire ?", same: false}
+  - {a: "Quelle est la hauteur de la tour Eiffel en mètres ?", b: "Quelle est la hauteur de la tour Eiffel en pieds ?", same: false}
+  - {a: "Quelle est la population de la France en 2010 ?", b: "Quelle est la population de la France en 2020 ?", same: false}
+  - {a: "Qui a peint la Joconde ?", b: "Qui a peint la Chapelle Sixtine ?", same: false}
+  - {a: "What is the capital of Australia?", b: "What is the capital of Austria?", same: false}
+  - {a: "How do I install Python on Windows?", b: "How do I uninstall Python on Windows?", same: false}
+  - {a: "Comment écrire une boucle for en Python ?", b: "Comment écrire une boucle while en Python ?", same: false}
+  - {a: "Quel est le plus grand océan du monde ?", b: "Quel est le plus petit océan du monde ?", same: false}
+  - {a: "Quelle est la différence entre un virus et une bactérie ?", b: "Quelle est la différence entre un virus et un champignon ?", same: false}
+  - {a: "Comment traduire 'chat' en anglais ?", b: "Comment traduire 'chien' en anglais ?", same: false}
+  - {a: "Quelle est la recette des crêpes sucrées ?", b: "Quelle est la recette des crêpes salées ?", same: false}
+  - {a: "Quelle est la différence entre TCP et UDP ?", b: "Quelle est la différence entre TCP et HTTP ?", same: false}
+  - {a: "Que signifie l'acronyme CPU ?", b: "Que signifie l'acronyme GPU ?", same: false}
+  - {a: "Quelle année a eu lieu la Révolution française ?", b: "Quelle année a eu lieu la Révolution russe ?", same: false}
+  - {a: "What time is it in London?", b: "What time is it in Lisbon?", same: false}
+  - {a: "Comment cuire des pâtes al dente ?", b: "Comment cuire du riz al dente ?", same: false}
+  - {a: "Est-ce que les chats peuvent manger du chocolat ?", b: "Est-ce que les chiens peuvent manger du chocolat ?", same: false}
+  - {a: "Combien de joueurs dans une équipe de football ?", b: "Combien de joueurs dans une équipe de rugby ?", same: false}
+  - {a: "How many players are on a basketball team?", b: "How many players are on a volleyball team?", same: false}
+  - {a: "Quelle est la capitale du Canada ?", b: "Quelle est la monnaie du Canada ?", same: false}

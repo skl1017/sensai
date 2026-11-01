@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 
 from app import build_agent
@@ -9,6 +10,7 @@ from core.agent import Agent
 from core.llm import ILLM, LLMError
 from core.node import Next, PipelineNode
 from core.types import Context, Message, ToolCall
+from storage.stores import InMemoryStores
 from tests.fakes import FakeLLM
 from ui.cli import CliUI, _format_citations, run_cli
 
@@ -431,3 +433,65 @@ async def test_llm_set_changes_take_effect_immediately_on_the_next_turn():
         scripted_read_line(["/llm set temperature 0.5", "hello", "/quit"]),
     )
     assert llm.seen_options == [{"temperature": 0.5}]
+
+
+class _StreamingModifiedNode(PipelineNode):
+    """Streams a raw answer to the UI, then sets a filtered `ctx.response`."""
+
+    def __init__(self, ui: CliUI, modified: bool) -> None:
+        self.ui = ui
+        self.modified = modified
+
+    async def handle(self, ctx: Context, next: Next) -> Context:
+        self.ui.on_token("raw answer")
+        ctx.response = "filtered answer" if self.modified else "raw answer"
+        ctx.state["output_modified"] = self.modified
+        return ctx
+
+
+async def test_streamed_answer_reprinted_when_output_modified():
+    out = io.StringIO()
+    ui = CliUI(out)
+    agent = make_agent(_StreamingModifiedNode(ui, modified=True))
+    await run_cli(agent, ui, scripted_read_line(["hello", "/quit"]))
+    text = out.getvalue()
+    assert "[réponse filtrée]" in text
+    assert (
+        text.index("raw answer") < text.index("[réponse filtrée]") < text.index("filtered answer")
+    )
+
+
+async def test_streamed_answer_not_reprinted_when_unmodified():
+    out = io.StringIO()
+    ui = CliUI(out)
+    agent = make_agent(_StreamingModifiedNode(ui, modified=False))
+    await run_cli(agent, ui, scripted_read_line(["hello", "/quit"]))
+    assert "[réponse filtrée]" not in out.getvalue()
+    assert out.getvalue().count("raw answer") == 1
+
+
+async def test_interrupted_partial_is_pii_masked_before_saving():
+    from ui.cli import _run_turn
+
+    class _StreamThenWait(PipelineNode):
+        def __init__(self, ui: CliUI) -> None:
+            self.ui = ui
+
+        async def handle(self, ctx: Context, next: Next) -> Context:
+            self.ui.on_token("Écris à jean.dupont@example.com puis")
+            await asyncio.sleep(10)
+            return ctx  # pragma: no cover
+
+    out = io.StringIO()
+    ui = CliUI(out)
+    agent = make_agent(_StreamThenWait(ui))
+    stores = InMemoryStores()
+
+    def install(task):
+        asyncio.get_running_loop().call_later(0.05, task.cancel)
+        return lambda: None
+
+    await _run_turn(agent, ui, stores, "s1", "hi", None, install)
+    saved = repr(stores.conversation.branch("s1", stores.conversation.head("s1")))
+    assert "[EMAIL]" in saved
+    assert "jean.dupont@example.com" not in saved

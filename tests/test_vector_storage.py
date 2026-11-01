@@ -101,3 +101,66 @@ async def test_add_replaces_existing_embedding_for_same_id(storage):
 
     assert len(results) == 1
     assert results[0].distance == pytest.approx(0.0, abs=1e-6)
+
+
+# ---------- table et métrique configurables ----------
+
+
+@pytest.mark.asyncio
+async def test_custom_cosine_table_coexists_with_default_chunk_vectors():
+    engine = create_engine("sqlite://")
+    default = SqliteVectorStorage(engine, embedding_dim=EMBEDDING_DIM)
+    cosine = SqliteVectorStorage(
+        engine, embedding_dim=EMBEDDING_DIM, table="cache_vectors", distance_metric="cosine"
+    )
+    await default.add("chunk_1", [1.0, 0.0, 0.0, 0.0])
+    await cosine.add("entry_1", [1.0, 0.0, 0.0, 0.0])
+
+    cosine_hits = await cosine.search(collection="cache_vectors", vector=[1.0, 0.0, 0.0, 0.0], k=5)
+    default_hits = await default.search(
+        collection="chunk_vectors", vector=[1.0, 0.0, 0.0, 0.0], k=5
+    )
+
+    assert [h.chunk_id for h in cosine_hits] == ["entry_1"]
+    assert [h.chunk_id for h in default_hits] == ["chunk_1"]
+
+
+@pytest.mark.asyncio
+async def test_cosine_distance_is_one_minus_cosine():
+    engine = create_engine("sqlite://")
+    storage = SqliteVectorStorage(
+        engine, embedding_dim=EMBEDDING_DIM, table="cache_vectors", distance_metric="cosine"
+    )
+    await storage.add("orthogonal", [0.0, 1.0, 0.0, 0.0])
+
+    results = await storage.search(collection="cache_vectors", vector=[1.0, 0.0, 0.0, 0.0], k=1)
+
+    assert results[0].distance == pytest.approx(1.0, abs=1e-6)
+
+
+@pytest.mark.asyncio
+async def test_filtered_search_is_not_cut_by_closer_ids_outside_filter(storage):
+    # sans correction, LIMIT coupe avant le filtre et renvoie []
+    await storage.add("outside", [1.0, 0.0, 0.0, 0.0])
+    await storage.add("inside", [0.9, 0.1, 0.0, 0.0])
+
+    results = await storage.search(
+        collection="chunk_vectors", vector=[1.0, 0.0, 0.0, 0.0], k=1, filters=["inside"]
+    )
+
+    assert [r.chunk_id for r in results] == ["inside"]
+
+
+@pytest.mark.parametrize("table", ["", "1bad", "bad-name", "x; DROP TABLE y", "a b"])
+def test_invalid_table_name_raises(table):
+    engine = create_engine("sqlite://")
+
+    with pytest.raises(ValueError):
+        SqliteVectorStorage(engine, embedding_dim=EMBEDDING_DIM, table=table)
+
+
+def test_invalid_distance_metric_raises():
+    engine = create_engine("sqlite://")
+
+    with pytest.raises(ValueError):
+        SqliteVectorStorage(engine, embedding_dim=EMBEDDING_DIM, distance_metric="hamming")

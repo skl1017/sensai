@@ -12,9 +12,15 @@ import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
+from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
+from sqlmodel import SQLModel
+
 from core.llm import ILLM, IEmbedder
 from core.tool import ITool
 from core.types import LLMChunk, Message, ToolCall
+from storage.semantic_cache import SemanticCache
+from storage.vector_storage import SqliteVectorStorage
 
 
 class FakeLLM(ILLM):
@@ -190,3 +196,19 @@ class FakeEmbedder(IEmbedder):
         for word in re.findall(r"\w+", text.lower()):
             vec[sum(map(ord, word)) % self.dim] += 1.0
         return vec
+
+
+def make_semantic_cache(dim: int = 256, clock: Callable[[], float] | None = None) -> SemanticCache:
+    """A real `SemanticCache` on a private in-memory SQLite (matches `FakeEmbedder`'s dim)."""
+    engine = create_engine(
+        "sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}
+    )
+    vectors = SqliteVectorStorage(
+        engine, embedding_dim=dim, table="cache_vectors", distance_metric="cosine"
+    )  # before any other use of the engine
+    SQLModel.metadata.create_all(engine)
+    return (
+        SemanticCache(engine, vectors)
+        if clock is None
+        else SemanticCache(engine, vectors, clock=clock)
+    )

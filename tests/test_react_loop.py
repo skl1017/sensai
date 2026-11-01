@@ -472,3 +472,22 @@ async def test_from_config_without_ui_leaves_callbacks_none():
     assert node.max_iterations == 4
     assert node.on_token is None
     assert node.on_event is None
+
+
+async def test_from_config_without_stream_skips_on_token_but_keeps_on_event():
+    from types import SimpleNamespace
+
+    class DummyUI:
+        def on_token(self, text: str) -> None:
+            pass
+
+        def on_event(self, kind: str, data: dict) -> None:
+            pass
+
+    ui = DummyUI()
+    node = ReActLoopNode.from_config({}, SimpleNamespace(ui=ui, stream=False))
+    assert node.on_token is None
+    assert node.on_event == ui.on_event
+
+    node = ReActLoopNode.from_config({}, SimpleNamespace(ui=ui, stream=True))
+    assert node.on_token == ui.on_token

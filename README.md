@@ -57,6 +57,27 @@ docker compose up -d        # ollama on :11434 + one-shot model pull + searxng o
 docker compose logs -f ollama-pull
 ```
 
+### Ollama Cloud (optional)
+
+The chat model can run on Ollama Cloud while embeddings stay on the local server. Create a key at
+<https://ollama.com/settings/keys>, set `OLLAMA_API_KEY` in `.env`, then change the `llm` section
+of `config/agent.yaml`:
+
+```yaml
+llm:
+  provider: ollama
+  model: beam                           # a name listed by https://ollama.com/api/tags
+  host: https://ollama.com
+  embed_host: http://localhost:11434    # embeddings stay local
+  api_key_env: OLLAMA_API_KEY           # name of the variable, never the key itself
+  embed_model: nomic-embed-text
+  max_context_tokens: 8192
+```
+
+Without `api_key_env`, no key is sent. If the variable is not set, startup fails with an error
+naming it. Most cloud models require usage credits (`HTTP 402` otherwise). Questions, retrieved
+document passages and tool results are sent to Ollama, so review what your documents contain first.
+
 ### Web search (SearXNG)
 
 The `web_search` tool queries a SearXNG instance at `http://localhost:8080` (the `url` of
@@ -101,6 +122,11 @@ Example:
 - **External services**: Ollama is required; `web_search` needs SearXNG or a SerpApi key,
   `run_python` needs Docker and the filesystem MCP server needs `npx`.
 - **Documents**: scanned PDFs are not supported (no OCR) and some PDFs extract poorly.
-- **Security**: there is no input or output guardrail yet, and side-effecting tools rely on
-  human approval.
+- **Guardrails** (`config/guardrails.yaml`): input checks (length, forbidden patterns,
+  injection heuristics, optional LLM scope check) can be bypassed by rephrasing, encoding or
+  another language, and only cover the user's message, not RAG chunks or tool observations.
+  PII masking is regex-based (email, phone, IBAN, card); names or addresses need an extra
+  recognizer. Answers are streamed before the output check: a masked answer is reprinted after
+  `[réponse filtrée]`, so the raw text shows briefly (set `strict: true` to disable streaming).
+- **Security**: side-effecting tools rely on human approval.
 - **Interface**: the terminal is the only interface for now.

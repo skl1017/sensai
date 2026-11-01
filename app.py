@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import os
 from collections.abc import Callable, Iterable
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
@@ -42,7 +43,10 @@ from core.types import Context
 from core.ui import UserInterface
 from llm.cross_encoder import FastEmbedReranker
 from llm.ollama import Ollama, OllamaEmbedder
+from nodes.cache_node import CacheNode
 from nodes.context_builder import ContextBuilderNode
+from nodes.input_guardrail import InputGuardrailNode
+from nodes.output_guardrail import OutputGuardrailNode
 from nodes.persist_node import PersistNode
 from nodes.react_loop import ReActLoopNode
 from nodes.reranker import LLMReranker
@@ -50,6 +54,7 @@ from storage.chunk_store import ChunkStore
 from storage.conversation import ConversationStore
 from storage.memory_db import MemoryDB
 from storage.profile import ProfileStore
+from storage.semantic_cache import SemanticCache
 from storage.stores import InMemoryStores, Stores
 from storage.vector_storage import SqliteVectorStorage
 from tools.agent_tool import AgentTool, SubAgentUI
@@ -75,7 +80,9 @@ class Deps:
     config's `reranker:` section (`RAGSection` with `rerank: true`);
     `config_dir` is the directory of the loaded `agent.yaml` (personas,
     prompts, few-shot bank are resolved against it);
-    `persona`/`prompt_version` are the config's root keys.
+    `persona`/`prompt_version` are the config's root keys. `stream` is
+    `False` when an `output_guardrail` entry is `strict` (EV2): the ReAct node
+    then streams nothing and the UI shows the checked answer only.
     """
 
     llm: ILLM
@@ -87,6 +94,7 @@ class Deps:
     persona: str = "default"
     prompt_version: str | None = None
     permissions: PermissionPolicy | None = None
+    stream: bool = True
 
 
 def flatten(items: Iterable[ITool | list[ITool]]) -> list[ITool]:
@@ -102,8 +110,11 @@ def flatten(items: Iterable[ITool | list[ITool]]) -> list[ITool]:
 
 NODES: dict[str, Callable[[dict, Deps], PipelineNode]] = {
     "persist": PersistNode.from_config,
+    "input_guardrail": InputGuardrailNode.from_config,
+    "cache": CacheNode.from_config,
     "context": ContextBuilderNode.from_config,
     "react": ReActLoopNode.from_config,
+    "output_guardrail": OutputGuardrailNode.from_config,
 }
 
 TOOLS: dict[str, Callable[[dict, Deps], ITool | list[ITool]]] = {
@@ -119,14 +130,27 @@ TOOLS: dict[str, Callable[[dict, Deps], ITool | list[ITool]]] = {
 
 
 def build_llm(llm_cfg: dict) -> Ollama:
-    """Build the `Ollama` adapter (and its embedder) from the `llm:` config section."""
+    """Build the `Ollama` adapter (and its embedder) from the `llm:` config section.
+
+    `api_key_env` names the environment variable holding the chat API key (the
+    key itself never sits in the config); `embed_host` lets embeddings stay on
+    another server than the chat, and defaults to `host`. The embedder never
+    receives the key.
+    """
     cfg = dict(llm_cfg)
     provider = cfg.pop("provider", None)
     if provider != "ollama":
         raise ValueError(f"Unsupported llm provider {provider!r}: only 'ollama' is supported")
 
+    api_key_env = cfg.pop("api_key_env", None)
+    if api_key_env is not None:
+        cfg["api_key"] = os.environ.get(api_key_env)
+        if not cfg["api_key"]:
+            raise ValueError(f"llm.api_key_env: environment variable {api_key_env} is not set")
+
     embed_model = cfg.pop("embed_model", None)
-    embedder_kwargs = {"host": cfg.get("host", "http://localhost:11434")}
+    default_host = cfg.get("host", "http://localhost:11434")
+    embedder_kwargs = {"host": cfg.pop("embed_host", default_host)}
     if embed_model is not None:
         embedder_kwargs["model"] = embed_model
     embedder = OllamaEmbedder(**embedder_kwargs)
@@ -169,17 +193,20 @@ def needs_approval(tool: ITool, cfg: AgentConfig) -> bool:
 
 
 def _stores_from_config(cfg: AgentConfig) -> InMemoryStores:
-    """Build the default `InMemoryStores` from the `persist`/`context` pipeline entries.
+    """Build the default `InMemoryStores` from the `persist`/`cache`/`context` pipeline entries.
 
     `ConversationStore(root=...)` is used when a `persist` entry carries a
     `dir` param, in-memory otherwise. `ProfileStore` is backed by the
     `context` entry's `profile_path` (default `"data/profile.yaml"`) when a
     `context` entry is present at all, in-memory (`ProfileStore(None)`)
-    otherwise. Kept deliberately simple: no validation beyond what
+    otherwise. A `cache` entry adds a `SemanticCache` in the shared engine, its
+    vector table sized by the entry's `embedding_dim` (default 768,
+    nomic-embed-text). Kept deliberately simple: no validation beyond what
     `PersistNode.from_config`/`ContextBuilderNode.from_config` already do.
     """
     persist_params = next((params for name, params in cfg.pipeline if name == "persist"), None)
     context_params = next((params for name, params in cfg.pipeline if name == "context"), None)
+    cache_params = next((params for name, params in cfg.pipeline if name == "cache"), None)
 
     conversation = None
     if persist_params is not None and "dir" in persist_params:
@@ -196,11 +223,24 @@ def _stores_from_config(cfg: AgentConfig) -> InMemoryStores:
         db.engine,
         SqliteVectorStorage(db.engine),
     )
+    semantic_cache = None
+    if cache_params is not None:
+        semantic_cache = SemanticCache(
+            db.engine,
+            SqliteVectorStorage(
+                db.engine,
+                embedding_dim=cache_params.get("embedding_dim", 768),
+                table="cache_vectors",
+                distance_metric="cosine",
+            ),
+        )
+
     return InMemoryStores(
         conversation=conversation,
         profile=profile,
         memory_db=memory_db,
         chunk_store=chunk_store,
+        semantic_cache=semantic_cache,
     )
 
 
@@ -298,6 +338,9 @@ async def build_agent(
         config_dir=config_dir if config_dir is not None else Path(cfg_path).parent,
         persona=cfg.persona,
         prompt_version=cfg.prompt_version,
+        stream=not any(
+            name == "output_guardrail" and params.get("strict") for name, params in cfg.pipeline
+        ),
     )
 
     stack = AsyncExitStack()

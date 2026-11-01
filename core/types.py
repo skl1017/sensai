@@ -35,8 +35,11 @@ Reserved `ctx.state` keys
 - `trace_id`: written by `LoggingNode`; read by `EvalNode` (`background`
   mode), `AgentTool` (via `ContextVar`). Request identifier.
 - `blocked`: written by `InputGuardrailNode`; read by `PersistNode`,
-  `LoggingNode`, `EvalNode`, `ArtifactNode`. Reason for the block, absent
-  otherwise.
+  `LoggingNode`, `EvalNode`, `ArtifactNode`. Name of the rule that blocked
+  the request (`"length"`, `"forbidden:<name>"`, `"injection:<name>"`,
+  `"scope"`), absent otherwise.
+- `input_warnings`: written by `InputGuardrailNode`; read by `LoggingNode`.
+  Names of the `warn` rules that matched (never the matched text).
 - `cache_hit`: written by `CacheNode`; read by `LoggingNode`, `EvalNode`,
   `ArtifactNode`. `True` if the response comes from the cache.
 - `summary`: written by the entry point (loaded value), then by
@@ -58,7 +61,12 @@ Reserved `ctx.state` keys
   `CacheNode`, `ArtifactNode`. `True` if the iteration budget was
   exhausted.
 - `pii_found`: written by `OutputGuardrailNode`; read by `LoggingNode`.
-  PII types detected in the output.
+  PII detected in the output: list of `{type, count}`, never the values.
+- `output_warnings`: written by `OutputGuardrailNode`; read by
+  `LoggingNode`. Names of the `warn` rules that matched.
+- `output_modified`: written by `OutputGuardrailNode`; read by UI. `True`
+  if the guardrail changed `response`: the UI then replaces the streamed
+  text with it.
 - `eval_scores`: written by `EvalNode`; read by `LoggingNode`, UI. Scores
   and unverifiable claims.
 - `artifact`: written by the entry point (loaded value), then by

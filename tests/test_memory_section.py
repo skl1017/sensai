@@ -13,7 +13,7 @@ from nodes.context_section import ContextSection
 from nodes.memory_section import MAX_VALUE_CHARS, MemorySection
 from storage.memory_db import MemoryDB
 from storage.stores import InMemoryStores
-from tests.fakes import FakeEmbedder, FakeLLM, FakeUI
+from tests.fakes import FakeEmbedder, FakeLLM, FakeUI, make_semantic_cache
 
 
 def _ctx(text: str = "colour", **state) -> Context:
@@ -170,7 +170,7 @@ async def test_failing_search_is_skipped_by_context_builder():
 async def test_fact_saved_in_one_session_is_recalled_in_the_next():
     cfg = "config/agent.yaml"
     db = MemoryDB()
-    stores = InMemoryStores(memory_db=db)
+    stores = InMemoryStores(memory_db=db, semantic_cache=make_semantic_cache())
     embedder = FakeEmbedder()
 
     save = ToolCall(

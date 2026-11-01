@@ -10,7 +10,7 @@ from app import build_agent
 from core.types import ToolCall
 from storage.memory_db import MemoryDB
 from storage.stores import InMemoryStores
-from tests.fakes import FakeEmbedder, FakeLLM
+from tests.fakes import FakeEmbedder, FakeLLM, make_semantic_cache
 from tests.test_cli import scripted_read_line
 from ui.cli import CliUI, run_cli
 
@@ -34,7 +34,10 @@ async def _session(lines: list[str], db: MemoryDB | None, script=None) -> str:
     llm.embedder = FakeEmbedder()
     stores = InMemoryStores(memory_db=db)
     agent = await build_agent(
-        "config/agent.yaml", ui, llm=llm, stores=InMemoryStores(memory_db=db or MemoryDB())
+        "config/agent.yaml",
+        ui,
+        llm=llm,
+        stores=InMemoryStores(memory_db=db or MemoryDB(), semantic_cache=make_semantic_cache()),
     )
     await run_cli(agent, ui, scripted_read_line([*lines, "/quit"]), stores, "sess")
     return out.getvalue()
@@ -97,7 +100,7 @@ async def test_memory_disabled():
     out = io.StringIO()
     ui = CliUI(out)
     # The agent needs a db to build from the real config; the CLI's stores have none.
-    agent_stores = InMemoryStores(memory_db=MemoryDB())
+    agent_stores = InMemoryStores(memory_db=MemoryDB(), semantic_cache=make_semantic_cache())
     llm = FakeLLM([])
     llm.embedder = FakeEmbedder()
     agent = await build_agent("config/agent.yaml", ui, llm=llm, stores=agent_stores)
