@@ -1,8 +1,10 @@
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
 
 from nodes.rag_section import RAGSection
+from tests.fakes import FakeLLM
 
 DIM = 4
 
@@ -24,9 +26,15 @@ class FakeChunkStore:
     def __init__(self, hits=None):
         self.hits = hits or []
         self.calls: list[tuple[list[float], int]] = []
+        self.filters: dict | None = None
+        self.names: list[str] = []
 
-    async def search(self, embedding, k):
+    def file_names(self):
+        return self.names
+
+    async def search(self, embedding, k, **filters):
         self.calls.append((embedding, k))
+        self.filters = filters
         return self.hits
 
 
@@ -48,8 +56,8 @@ def make_chunk(
     )
 
 
-def make_ctx(user_input: str = "combien de jours de congés ?", **state):
-    return SimpleNamespace(user_input=user_input, state=dict(state))
+def make_ctx(user_input: str = "combien de jours de congés ?", llm=None, **state):
+    return SimpleNamespace(user_input=user_input, llm=llm, state=dict(state))
 
 
 @pytest.fixture
@@ -63,6 +71,95 @@ def make_section(embedder, hits=None, **kwargs):
 
 
 # ---------- build ----------
+
+
+@pytest.mark.asyncio
+async def test_build_without_filters_searches_without_filters(embedder):
+    section, store = make_section(embedder, hits=[])
+
+    await section.build(make_ctx())
+
+    assert store.filters == {}
+
+
+@pytest.mark.asyncio
+async def test_build_forwards_filters_and_parses_iso_dates(embedder):
+    section, store = make_section(embedder, hits=[])
+    filters = {"file_name": "rh.pdf", "date_from": "2026-01-15", "date_to": date(2026, 3, 1)}
+
+    await section.build(make_ctx(rag_filters=filters))
+
+    assert store.filters == {
+        "file_name": "rh.pdf",
+        "date_from": date(2026, 1, 15),
+        "date_to": date(2026, 3, 1),
+    }
+
+
+@pytest.mark.asyncio
+async def test_build_ignores_filters_set_to_none(embedder):
+    section, store = make_section(embedder, hits=[])
+
+    await section.build(make_ctx(rag_filters={"file_name": None, "date_to": "2026-03-01"}))
+
+    assert store.filters == {"date_to": date(2026, 3, 1)}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("filters", [{"author": "x"}, {"date_from": "hier"}])
+async def test_build_invalid_filter_raises_before_searching(embedder, filters):
+    section, store = make_section(embedder, hits=[(make_chunk("c1"), 0.9)])
+
+    with pytest.raises(ValueError):
+        await section.build(make_ctx(rag_filters=filters))
+
+    assert store.calls == []
+
+
+@pytest.mark.asyncio
+async def test_build_deduces_filters_from_the_question(embedder):
+    section, store = make_section(embedder, hits=[(make_chunk("c1"), 0.9)], extract_filters=True)
+    store.names = ["rh.pdf"]
+    ctx = make_ctx(llm=FakeLLM(['{"file_name": null, "date_from": null, "date_to": "2023-12-31"}']))
+
+    result = await section.build(ctx)
+
+    assert store.filters == {"date_to": date(2023, 12, 31)}
+    assert ctx.state["rag_applied_filters"] == {"date_to": "2023-12-31"}
+    assert "restricted to: dated until 2023-12-31" in result
+
+
+@pytest.mark.asyncio
+async def test_build_tells_the_model_when_filters_match_nothing(embedder):
+    section, store = make_section(embedder, hits=[], extract_filters=True)
+    store.names = ["rh.pdf"]
+    ctx = make_ctx(llm=FakeLLM(['{"file_name": "rh.pdf", "date_from": null, "date_to": null}']))
+
+    result = await section.build(ctx)
+
+    assert result == "The document search was restricted to: file rh.pdf. No document matches it."
+
+
+@pytest.mark.asyncio
+async def test_build_explicit_filters_skip_the_extraction(embedder):
+    section, store = make_section(embedder, hits=[], extract_filters=True)
+    llm = FakeLLM([])
+
+    await section.build(make_ctx(llm=llm, rag_filters={"file_name": "rh.pdf"}))
+
+    assert llm.calls == []
+    assert store.filters == {"file_name": "rh.pdf"}
+
+
+@pytest.mark.asyncio
+async def test_build_without_deduced_filter_searches_everything(embedder):
+    section, store = make_section(embedder, hits=[], extract_filters=True)
+    store.names = ["rh.pdf"]
+    ctx = make_ctx(llm=FakeLLM(['{"file_name": null, "date_from": null, "date_to": null}']))
+
+    assert await section.build(ctx) is None
+    assert store.filters == {}
+    assert "rag_applied_filters" not in ctx.state
 
 
 @pytest.mark.asyncio

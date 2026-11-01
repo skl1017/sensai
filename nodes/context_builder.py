@@ -35,7 +35,10 @@ Pipeline position 5 (wiki §9.1). Each turn:
 `ctx.state` keys written here: `query` (step 1), `prompt` (by
 `PersonaSection`, when the `persona` section is enabled), `summary` and
 `context_stats` (by `apply_budget`, when `budget` is configured),
-`retrieved_chunks` (by `RAGSection`) and `citations` (step 5).
+`retrieved_chunks` and `rag_applied_filters` (by `RAGSection`) and `citations`
+(step 5). `RAGSection` also reads `rag_filters`, seeded by `chat_turn` for one
+turn; with `extract_filters: true`, it deduces them from the question otherwise
+(`nodes/rag_filter_extractor.py`).
 """
 
 from __future__ import annotations

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
 
 from sqlmodel import Session, select
 
@@ -55,8 +56,49 @@ class ChunkStore:
     def _similarity(distance: float) -> float:
         return 1.0 - distance**2 / 2
 
-    async def search(self, embedding: list[float], k: int = 4) -> list[tuple[ChunkData, float]]:
-        hits = await self._vectors.search("chunk_vectors", embedding, k)
+    def file_names(self) -> list[str]:
+        """Names of the source files that have chunks, sorted."""
+        query = (
+            select(IngestedFile.file_name)
+            .join(Chunk, Chunk.source_id == IngestedFile.id)
+            .distinct()
+            .order_by(IngestedFile.file_name)
+        )
+        with Session(self._engine) as session:
+            return list(session.exec(query).all())
+
+    def _allowed_ids(
+        self, file_name: str | None, date_from: date | None, date_to: date | None
+    ) -> list[str] | None:
+        """Chunk ids matching the filters, `None` when no filter applies.
+
+        Both dates are inclusive and compare against the source file's
+        `last_modified`; a chunk without a source file never matches a filter.
+        """
+        if file_name is None and date_from is None and date_to is None:
+            return None
+        query = select(Chunk.id).join(IngestedFile, Chunk.source_id == IngestedFile.id)
+        if file_name is not None:
+            query = query.where(IngestedFile.file_name == file_name)
+        if date_from is not None:
+            query = query.where(IngestedFile.last_modified >= datetime.combine(date_from, time.min))
+        if date_to is not None:
+            next_day = date_to + timedelta(days=1)
+            query = query.where(IngestedFile.last_modified < datetime.combine(next_day, time.min))
+        with Session(self._engine) as session:
+            return list(session.exec(query).all())
+
+    async def search(
+        self,
+        embedding: list[float],
+        k: int = 4,
+        file_name: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> list[tuple[ChunkData, float]]:
+        """The `k` chunks closest to `embedding`, among those matching the optional filters."""
+        allowed = self._allowed_ids(file_name, date_from, date_to)
+        hits = await self._vectors.search("chunk_vectors", embedding, k, filters=allowed)
         if not hits:
             return []
         with Session(self._engine) as session:

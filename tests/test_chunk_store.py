@@ -1,11 +1,11 @@
-from datetime import datetime
+from datetime import date, datetime
 from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
-from sqlmodel import Session, SQLModel
+from sqlmodel import Session, SQLModel, select
 
-from config.db.models import IngestedFile
+from config.db.models import Chunk, IngestedFile
 from core.storage import IVectorStorage
 from storage.chunk_store import ChunkStore
 from storage.ingest import ChunkData
@@ -163,6 +163,35 @@ async def test_search_queries_chunk_vectors_collection_with_k(engine):
     assert vectors.search_calls == [("chunk_vectors", [0.1, 0.2, 0.3, 0.4], 7)]
 
 
+def test_file_names_lists_files_with_chunks_once(engine):
+    store = ChunkStore(engine, SearchableFakeVectors())
+    with Session(engine) as session:
+        for name in ("rh.pdf", "cv.pdf", "vide.pdf"):
+            session.add(
+                IngestedFile(
+                    file_name=name,
+                    file_path=f"/docs/{name}",
+                    last_modified=datetime(2026, 3, 14),
+                    content_hash=name,
+                )
+            )
+        session.commit()
+        ids = {f.file_name: f.id for f in session.exec(select(IngestedFile)).all()}
+        for chunk_id, name in (("c1", "rh.pdf"), ("c2", "rh.pdf"), ("c3", "cv.pdf")):
+            session.add(
+                Chunk(
+                    id=chunk_id,
+                    text="t",
+                    source_id=ids[name],
+                    chunk_index=0,
+                    created_at="2026-01-01T00:00:00+00:00",
+                )
+            )
+        session.commit()
+
+    assert store.file_names() == ["cv.pdf", "rh.pdf"]
+
+
 # ---------- intégration avec le vrai sqlite-vec ----------
 
 
@@ -207,3 +236,83 @@ async def test_integration_search_after_delete_by_source_is_empty(real_store):
     await real_store.delete_by_source("src1")
 
     assert await real_store.search([1.0, 0.0, 0.0, 0.0], k=5) == []
+
+
+# ---------- filtres optionnels (vrai sqlite-vec) ----------
+
+
+QUERY = [1.0, 0.0, 0.0, 0.0]
+
+
+@pytest.fixture
+async def filtered_store(real_store):
+    """rh.pdf (janvier), accord.pdf (mars), notes.txt (mai) et un chunk sans fichier."""
+    sources = [
+        ("rh.pdf", datetime(2026, 1, 15, 23, 59)),
+        ("accord.pdf", datetime(2026, 3, 15)),
+        ("notes.txt", datetime(2026, 5, 15)),
+    ]
+    chunks, embeddings = [], []
+    with Session(real_store._engine) as session:
+        for position, (name, modified) in enumerate(sources):
+            source = IngestedFile(
+                file_name=name, file_path=f"/docs/{name}", last_modified=modified, content_hash="h"
+            )
+            session.add(source)
+            session.commit()
+            session.refresh(source)
+            chunks.append(make_chunk(name, source_id=source.id))
+            embeddings.append([1.0, position / 10, 0.0, 0.0])
+    chunks.append(make_chunk("orphan"))
+    embeddings.append([1.0, 0.0, 0.0, 0.0])
+    await real_store.add_chunks(chunks, embeddings)
+    return real_store
+
+
+async def found(store, **filters) -> list[str]:
+    return [chunk.id for chunk, _ in await store.search(QUERY, k=10, **filters)]
+
+
+@pytest.mark.asyncio
+async def test_search_without_filter_keeps_every_chunk(filtered_store):
+    assert set(await found(filtered_store)) == {"rh.pdf", "accord.pdf", "notes.txt", "orphan"}
+
+
+@pytest.mark.asyncio
+async def test_search_file_name_filter(filtered_store):
+    assert await found(filtered_store, file_name="accord.pdf") == ["accord.pdf"]
+
+
+@pytest.mark.asyncio
+async def test_search_filter_returns_k_results_among_allowed_chunks(filtered_store):
+    # Les chunks plus proches sont exclus avant la recherche, ils ne prennent pas de place dans k.
+    results = await filtered_store.search(QUERY, k=1, file_name="notes.txt")
+
+    assert [chunk.id for chunk, _ in results] == ["notes.txt"]
+
+
+@pytest.mark.asyncio
+async def test_search_date_from_is_inclusive(filtered_store):
+    assert await found(filtered_store, date_from=date(2026, 3, 15)) == ["accord.pdf", "notes.txt"]
+
+
+@pytest.mark.asyncio
+async def test_search_date_to_includes_the_whole_day(filtered_store):
+    assert await found(filtered_store, date_to=date(2026, 1, 15)) == ["rh.pdf"]
+
+
+@pytest.mark.asyncio
+async def test_search_date_range(filtered_store):
+    period = {"date_from": date(2026, 2, 1), "date_to": date(2026, 4, 1)}
+
+    assert await found(filtered_store, **period) == ["accord.pdf"]
+
+
+@pytest.mark.asyncio
+async def test_search_combines_file_name_and_dates(filtered_store):
+    assert await found(filtered_store, file_name="rh.pdf", date_from=date(2026, 2, 1)) == []
+
+
+@pytest.mark.asyncio
+async def test_search_unknown_file_name_returns_nothing(filtered_store):
+    assert await found(filtered_store, file_name="absent.pdf") == []

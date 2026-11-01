@@ -102,6 +102,16 @@ async def test_cited_source_recorded_for_answer_on_ingested_document():
     assert ctx.state["citations"]["invalid"] == []
 
 
+async def test_invalid_rag_filter_sends_no_document_but_still_answers():
+    agent, llm = rag_agent("Je ne sais pas.", [hit("c1", "Secret.", "rh.pdf")])
+
+    ctx = await agent.run("Question ?", [], {"rag_filters": {"date_from": "hier"}})
+
+    assert ctx.response == "Je ne sais pas."
+    assert "Secret." not in "".join(m.content for m in llm.calls[0]["messages"])
+    assert "retrieved_chunks" not in ctx.state
+
+
 async def test_hallucinated_citation_reported_as_invalid():
     agent, _ = rag_agent("D'après [2].", [hit("c1", "Texte.", "rh.pdf")])
 
