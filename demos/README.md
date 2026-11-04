@@ -26,6 +26,12 @@ fallback for anything that depends on the network or a slow model.
 | X2 Branching & interrupt | `x2-branching-interrupt` |
 | X4 Questions to the user | `x4-ask-user` |
 
+## All-in-one video
+
+`sensai-features.mp4` chains every demo with a title card, a banner naming the feature and
+one chapter per feature (timecodes in `sensai-features.md`); idle stretches are cut to 1.5 s.
+Rebuild it after re-recording with `python3 demos/montage.py` (needs Pillow).
+
 ## Re-recording
 
 ```bash
