@@ -13,3 +13,6 @@ dist/
 !.env.example
 .docs/
 node_modules/
+
+# VHS demos workspace (demos/record.sh)
+demos/.work/
